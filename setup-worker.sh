@@ -53,6 +53,17 @@ fi
 
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} ---"
 
+# Determine architecture for GKE containerd build and CNI plugins
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" == "amd64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" == "arm64" ]; then
+    ARCH="arm64"
+else
+    echo "Error: Unsupported architecture: $ARCH. Expected amd64 or arm64."
+    exit 1
+fi
+
 # --- Step 1: System Preparation ---
 echo "--> [1/6] Preparing system: updating packages and disabling swap..."
 apt-get update >/dev/null
@@ -61,36 +72,78 @@ swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 echo "  [✓] System prepared."
 
-# --- Step 2: Install Container Runtime (containerd) ---
-echo "--> [2/6] Installing containerd runtime..."
-apt-get install -y containerd >/dev/null
-mkdir -p /etc/containerd
-containerd config default > /etc/containerd/config.toml
-# Set cgroup driver to systemd
-sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-systemctl restart containerd
-echo "  [✓] Containerd installed and configured."
+# --- Step 2: Install CNI Plugins ---
+echo "--> [2/6] Installing CNI plugins..."
+mkdir -p /opt/cni/bin
+CNI_PLUGINS_VERSION="v1.5.1-gke.7"
+CNI_PLUGINS_URL="https://storage.googleapis.com/gke-multi-cloud-api-release/cni-plugins/${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-${CNI_PLUGINS_VERSION}.tgz"
+curl -sL "${CNI_PLUGINS_URL}" -o cni-plugins.tgz
+if [ ! -f cni-plugins.tgz ]; then
+    echo "Error: Downloaded cni-plugins.tgz not found. Exiting."
+    exit 1
+fi
+echo "  --> Extracting CNI plugins..."
+tar -xvf cni-plugins.tgz -C /opt/cni/bin >/dev/null
+rm cni-plugins.tgz
+echo "  [✓] CNI plugins installed."
 
-# --- Step 3: Install Kubernetes Components ---
-echo "--> [3/6] Installing kubelet, kubeadm, and kubectl..."
+# --- Step 3: Install Container Runtime (containerd) ---
+echo "--> [3/6] Installing containerd runtime..."
+
+echo "  --> Downloading containerd for ${ARCH}..."
+# Use -sL for silent and follow redirects
+curl -sL https://storage.googleapis.com/gke-multi-cloud-api-release/containerd/v1.7.22-gke.0/cri-containerd-1.7.22-gke.0-linux-${ARCH}.tar.gz -o containerd.tar.gz
+if [ ! -f containerd.tar.gz ]; then
+    echo "Error: Downloaded containerd.tar.gz not found. Exiting."
+    exit 1
+fi
+
+echo "  --> Extracting containerd..."
+# This command typically extracts binaries to /usr/local/bin, configs to /etc/containerd, and service files to /etc/systemd/system
+tar -xvf containerd.tar.gz -C / >/dev/null
+
+# Clean up the downloaded tarball
+rm containerd.tar.gz
+
+echo "  --> Configuring containerd (ensuring systemd cgroup driver)..."
+# Ensure /etc/containerd/config.toml exists (it usually does from the GKE tarball, but good to be safe)
+if [ ! -f /etc/containerd/config.toml ]; then
+    echo "  [W] /etc/containerd/config.toml not found after extraction. Generating default..."
+    mkdir -p /etc/containerd
+    containerd config default > /etc/containerd/config.toml
+fi
+# Ensure cgroup driver is set to systemd, which is required for K8s
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+# Reload systemd daemon to pick up new service files (if any)
+systemctl daemon-reload
+
+echo "  --> Enabling and starting containerd service..."
+systemctl enable containerd
+systemctl restart containerd
+echo "  [✓] Containerd installed, configured, and service started."
+
+# --- Step 4: Install Kubernetes Components ---
+echo "--> [4/6] Installing kubelet, kubeadm, and kubectl..."
 mkdir -p /etc/apt/keyrings
 # Remove existing keyring file to prevent potential overwrite prompts
 rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list >/dev/null
 apt-get update >/dev/null
+# Removed kubernetes-cni from apt-get install as we are downloading it manually
 apt-get install -y kubelet kubeadm kubectl >/dev/null
 apt-mark hold kubelet kubeadm kubectl
 echo "  [✓] Kubernetes components installed."
 
-# --- Step 4: Configure Kubernetes Directories and Credentials ---
-echo "--> [4/6] Placing credentials and kubeconfig files..."
+# --- Step 5: Configure Kubernetes Directories and Credentials ---
+echo "--> [5/6] Placing credentials and kubeconfig files..."
 mkdir -p /var/lib/kubelet /var/lib/kube-proxy /etc/kubernetes/pki
 
 # Decode and place credentials
 echo "${CLUSTER_CA_CERT_BASE64}" | base64 -d > /etc/kubernetes/pki/ca.crt
 echo "${NODE_PRIVATE_KEY_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.key"
-echo "${NODE_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.crt" # Place client cert
+echo "${NODE_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.crt" # Place client cert (FIXED TYPO: BASE664 -> BASE64)
 chmod 600 "/var/lib/kubelet/${NODE_NAME}.key"
 chmod 644 "/var/lib/kubelet/${NODE_NAME}.crt" # Client cert can be readable by kubelet
 
@@ -102,6 +155,13 @@ kubectl config set-credentials "system:node:${NODE_NAME}" --client-certificate="
 kubectl config set-context default --cluster=k8s-manual --user="system:node:${NODE_NAME}" --kubeconfig=/var/lib/kubelet/kubeconfig >/dev/null
 kubectl config use-context default --kubeconfig=/var/lib/kubelet/kubeconfig >/dev/null
 
+# Fix: Create /etc/kubernetes/bootstrap-kubelet.conf to satisfy stat check
+# Since we are using pre-signed certs, this file will contain the fully configured kubeconfig.
+mkdir -p /etc/kubernetes
+cp /var/lib/kubelet/kubeconfig /etc/kubernetes/bootstrap-kubelet.conf
+echo "  [✓] Created /etc/kubernetes/bootstrap-kubelet.conf"
+
+
 # Create kube-proxy.kubeconfig
 # kube-proxy typically uses a service account token or its own bootstrap mechanism,
 # so this part remains as is, assuming a token will be available or handled differently.
@@ -112,14 +172,45 @@ kubectl config use-context default --kubeconfig=/var/lib/kube-proxy/kubeconfig >
 
 echo "  [✓] Credentials and kubeconfigs created."
 
-# --- Step 5: Configure Kubelet Service ---
-echo "--> [5/6] Creating kubelet configuration and systemd service..."
+# --- Step 6: Configure Kubelet Service ---
+echo "--> [6/6] Creating kubelet configuration and systemd service..."
 
 # Clean up any kubeadm-generated drop-ins for kubelet service.
 # This prevents conflicting configurations like bootstrap-kubeconfig environment variables.
 echo "  --> Removing existing kubelet service drop-in configurations..."
 rm -rf /etc/systemd/system/kubelet.service.d/*
 echo "  [✓] Cleaned up old kubelet service configurations."
+
+echo "  --> Creating CNI network configuration..."
+mkdir -p /etc/cni/net.d
+cat > /etc/cni/net.d/10-containerd-net.conflist <<EOF
+{
+  "name": "k8s-pod-network",
+  "cniVersion": "0.3.1",
+  "plugins": [
+    {
+      "type": "ptp",
+      "mtu": 1460,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "169.254.32.0/20",
+        "routes": [
+          {
+            "dst": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    {
+      "type": "portmap",
+      "capabilities": {
+        "portMappings": true
+      }
+    }
+  ]
+}
+EOF
+echo "  [✓] CNI network configuration created."
 
 # Kubelet config file
 cat > /var/lib/kubelet/config.yaml <<EOF
@@ -165,8 +256,8 @@ EOF
 
 echo "  [✓] Kubelet service configured."
 
-# --- Step 6: Start Services ---
-echo "--> [6/6] Enabling and starting kubelet service..."
+# --- Step 7: Start Services ---
+echo "--> [7/7] Enabling and starting kubelet service..."
 systemctl daemon-reload
 systemctl enable kubelet
 systemctl restart kubelet

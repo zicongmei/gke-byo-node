@@ -5,7 +5,7 @@
 #
 # Description: Generates the necessary credentials and a command to bootstrap a
 #              new worker node for a non-kubeadm Kubernetes cluster. It now
-#              also automates the Kubernetes Certificate Signing Request (CSR)
+#              automates the Kubernetes Certificate Signing Request (CSR)
 #              creation and approval process, eliminating the need for manual
 #              CSR approval on the control plane.
 #
@@ -198,6 +198,13 @@ echo "2. Run the following command on the new worker node to join it to the clus
 echo
 echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\""
 echo
-echo "3. Verify the node has joined:"
+echo "3. Approve the node CSR:"
+echo "  This script automatically created and the Certificate Signing Request (CSR)"
+echo "  for '${NODE_NAME}'. You can manually approve it on the control plane using:"
+echo "    kubectl get csr"
+echo "    kubectl certificate approve"
+echo 
+echo "4. Verify the node has joined:"
 echo "   kubectl get nodes"
+echo
 echo "------------------------------------------------------------------------"

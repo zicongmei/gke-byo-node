@@ -6,4 +6,5 @@
    ```
    sudo ./setup-worker.sh --name "ubuntu-1" --api-url ...
    ```
-1. todo
+1. Approve the CSR
+1. The node should be registered to k8s. See the ndoe in `kubectl get node`
