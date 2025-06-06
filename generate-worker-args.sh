@@ -4,12 +4,16 @@
 # generate-worker-args.sh
 #
 # Description: Generates the necessary credentials and a command to bootstrap a
-#              new worker node for a non-kubeadm Kubernetes cluster.
+#              new worker node for a non-kubeadm Kubernetes cluster. It now
+#              also automates the Kubernetes Certificate Signing Request (CSR)
+#              creation and approval process, eliminating the need for manual
+#              CSR approval on the control plane.
 #
 # Usage: ./generate-worker-args.sh <new-worker-node-name>
 #
 # Requirements:
-#   - kubectl connected to the target cluster.
+#   - kubectl connected to the target cluster with permissions to create and
+#     approve CertificateSigningRequests (e.g., cluster-admin).
 #   - openssl installed.
 #   - Access to the cluster's Certificate Authority (ca.crt).
 # ==============================================================================
@@ -49,10 +53,38 @@ echo "--> Discovering cluster information..."
 
 # Get Cluster CA certificate from kubectl config
 echo "--> Discovering cluster CA certificate from kubectl config..."
-readonly CLUSTER_CA_CERT_BASE64=$(kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
+# Get the current context and cluster name
+readonly CURRENT_CONTEXT=$(kubectl config current-context)
+readonly CLUSTER_NAME=$(kubectl config view -o jsonpath="{.contexts[?(@.name=='${CURRENT_CONTEXT}')].context.cluster}")
+
+if [ -z "${CLUSTER_NAME}" ]; then
+    echo "Error: Could not determine cluster name from current context: ${CURRENT_CONTEXT}."
+    echo "Please ensure your kubeconfig is correctly set up."
+    exit 1
+fi
+
+# Try to get certificate-authority-data first
+CLUSTER_CA_CERT_BASE64=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='${CLUSTER_NAME}')].cluster.certificate-authority-data}")
+
 if [ -z "${CLUSTER_CA_CERT_BASE64}" ]; then
-    echo "Error: Could not determine Cluster CA certificate from kubectl config."
-    echo "Ensure your kubeconfig has 'certificate-authority-data' for the current cluster context."
+    # If certificate-authority-data is empty, try to get certificate-authority file path
+    CA_FILE_PATH=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='${CLUSTER_NAME}')].cluster.certificate-authority}")
+    if [ -n "${CA_FILE_PATH}" ]; then
+        if [ -f "${CA_FILE_PATH}" ]; then
+            echo "  [i] Found certificate-authority file path: ${CA_FILE_PATH} for cluster '${CLUSTER_NAME}'. Reading content..."
+            CLUSTER_CA_CERT_BASE64=$(base64 -w 0 "${CA_FILE_PATH}")
+        else
+            echo "Error: Certificate authority file path '${CA_FILE_PATH}' for cluster '${CLUSTER_NAME}' does not exist or is not a file."
+            echo "Please check your kubeconfig."
+            exit 1
+        fi
+    fi
+fi
+
+if [ -z "${CLUSTER_CA_CERT_BASE64}" ]; then
+    echo "Error: Could not determine Cluster CA certificate for cluster '${CLUSTER_NAME}' from kubectl config."
+    echo "Ensure your kubeconfig has 'certificate-authority-data' or 'certificate-authority' (file path) for the current cluster context."
     exit 1
 fi
 echo "  [✓] Found Cluster CA certificate."
@@ -77,7 +109,7 @@ else
 fi
 
 
-# --- Credential Generation ---
+# --- Credential Generation and Approval ---
 echo "--> Generating credentials for ${NODE_NAME}..."
 
 # Create a temporary directory for generated files
@@ -105,26 +137,67 @@ EOF
 openssl req -new -key "${TMP_DIR}/${NODE_NAME}.key" -out "${TMP_DIR}/${NODE_NAME}.csr" -config "${TMP_DIR}/openssl-${NODE_NAME}.cnf" &>/dev/null
 
 readonly NODE_PRIVATE_KEY_BASE64=$(base64 -w 0 "${TMP_DIR}/${NODE_NAME}.key")
+readonly NODE_CSR_BASE64=$(base64 -w 0 "${TMP_DIR}/${NODE_NAME}.csr")
 echo "  [✓] Generated private key and CSR."
 
+# --- Kubernetes CSR creation and approval ---
+echo "--> Creating and approving CSR for ${NODE_NAME} in Kubernetes..."
+
+# Clean up any existing CSR for this node name to avoid conflicts on re-run
+kubectl delete csr "${NODE_NAME}" --ignore-not-found &>/dev/null
+
+# Create CSR object in Kubernetes
+CSR_YAML=$(cat <<EOF
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: ${NODE_NAME}
+spec:
+  groups:
+  - system:nodes
+  request: ${NODE_CSR_BASE64}
+  signerName: kubernetes.io/kube-apiserver-client-kubelet
+  usages:
+  - client auth
+EOF
+)
+
+echo "${CSR_YAML}" | kubectl apply -f - >/dev/null
+
+# Approve the CSR
+kubectl certificate approve "${NODE_NAME}" >/dev/null
+echo "  [✓] CSR created and approved in Kubernetes."
+
+# Wait for certificate to be signed and fetch it
+echo "  --> Waiting for signed client certificate (up to 10 seconds)..."
+NODE_CLIENT_CERT_BASE64=""
+for i in $(seq 1 10); do
+    NODE_CLIENT_CERT_BASE64=$(kubectl get csr "${NODE_NAME}" -o jsonpath='{.status.certificate}' 2>/dev/null)
+    if [ -n "${NODE_CLIENT_CERT_BASE64}" ]; then
+        echo "  [✓] Signed client certificate fetched."
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "${NODE_CLIENT_CERT_BASE64}" ]; then
+    echo "Error: Failed to fetch signed client certificate for ${NODE_NAME} after multiple attempts."
+    echo "Please check 'kubectl get csr ${NODE_NAME}' and 'kubectl describe csr ${NODE_NAME}' on the control plane."
+    exit 1
+fi
 
 # --- Final Output ---
 echo
 echo "------------------------------------------------------------------------"
-echo "  [SUCCESS] All arguments generated."
+echo "  [SUCCESS] All arguments generated and client certificate approved."
 echo "------------------------------------------------------------------------"
 echo
 echo "1. Copy the 'setup-worker.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\""
+echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\""
 echo
-echo "3. After running the command on the worker, approve its certificate from this machine:"
-echo "   kubectl get csr"
-echo "   # Find the CSR for ${NODE_NAME} and then run:"
-echo "   kubectl certificate approve <csr-name-from-previous-command>"
-echo
-echo "4. Verify the node has joined:"
+echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
 echo "------------------------------------------------------------------------"
