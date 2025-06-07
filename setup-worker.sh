@@ -58,6 +58,11 @@ if [ -z "$NODE_NAME" ] || \
     exit 1
 fi
 
+# Sanitize input versions by removing leading 'v'
+VERSION="${VERSION#v}"
+CONTAINERD_VERSION="${CONTAINERD_VERSION#v}"
+CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION#v}"
+
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
 # Determine architecture for containerd and CNI plugins

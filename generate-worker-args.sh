@@ -45,14 +45,20 @@ if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
     exit 1
 fi
 
+# Sanitize input versions by removing leading 'v'
+K8S_VERSION="${K8S_VERSION#v}"
+
 # Set default versions if not provided
 # These defaults correspond to the current versions hardcoded in setup-worker.sh
 readonly DEFAULT_CONTAINERD_VERSION="1.7.22"
 readonly DEFAULT_CNI_PLUGINS_VERSION="1.5.1" # The version part, without 'v'
 
-# Assign final versions for output
+# Assign final versions for output and sanitize them
 CONTAINERD_VERSION=${CONTAINERD_VERSION_ARG:-${DEFAULT_CONTAINERD_VERSION}}
+CONTAINERD_VERSION="${CONTAINERD_VERSION#v}" # Sanitize default or provided containerd version
+
 CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION_ARG:-${DEFAULT_CNI_PLUGINS_VERSION}}
+CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION#v}" # Sanitize default or provided cni version
 
 if ! command -v kubectl &> /dev/null; then
     echo "Error: kubectl command not found. Please install it and configure it."
@@ -195,6 +201,7 @@ echo "${CSR_YAML}" | kubectl apply -f - >/dev/null
 # Approve the CSR
 kubectl certificate approve "${NODE_NAME}" >/dev/null
 echo "  [✓] CSR created and approved in Kubernetes."
+# User still need to manually approve the CSR for the node registration later.
 
 # Wait for certificate to be signed and fetch it
 echo "  --> Waiting for signed client certificate (up to 10 seconds)..."
