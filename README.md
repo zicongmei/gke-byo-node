@@ -58,25 +58,7 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     ```
     This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found.
 
-5.  **Approve Node CSR**:
-    This ./setup-worker.sh created and the Certificate Signing Request (CSR)
-    requested by 'system:node:${NODE_NAME}'. You have to manually approve it using:
-    ```
-    kubectl get csr
-    kubectl certificate approve <the-csr-name>
-    ```
-
-    Example 
-    ```
-    $ kubectl get csr
-    NAME        AGE    SIGNERNAME                                    REQUESTOR              REQUESTEDDURATION   CONDITION
-    csr-jqktb   25s    kubernetes.io/kube-apiserver-client-kubelet   system:node:ubuntu-1   <none>              Pending
-    $ kubectl certificate approve csr-jqktb
-    certificatesigningrequest.certificates.k8s.io/csr-jqktb approved
-    ```
-
-
-6.  **Verify Node Registration**:
+5.  **Verify Node Registration**:
     On your workstation (where `kubectl` is configured), run the following command to check if your new node has successfully joined the cluster:
     ```bash
     kubectl get nodes

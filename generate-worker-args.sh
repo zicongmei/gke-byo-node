@@ -233,13 +233,7 @@ echo "2. Run the following command on the new worker node to join it to the clus
 echo
 echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
 echo
-echo "3. Approve the node CSR:"
-echo "  This ./setup-worker.sh  created and the Certificate Signing Request (CSR)"
-echo "  requested by 'system:node:${NODE_NAME}'. You have to manually approve it using:"
-echo "    kubectl get csr"
-echo "    kubectl certificate approve <the-csr-name>"
-echo
-echo "4. Verify the node has joined:"
+echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
 echo
 echo "------------------------------------------------------------------------"

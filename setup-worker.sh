@@ -265,6 +265,8 @@ clusterDNS:
   - "${CLUSTER_DNS_IP}"
 clusterDomain: "cluster.local"
 rotateCertificates: true # Keep this, as it's good for automatic certificate renewals later.
+tlsCertFile: "/var/lib/kubelet/${NODE_NAME}.crt"
+tlsPrivateKeyFile: "/var/lib/kubelet/${NODE_NAME}.key"
 EOF
 
 # Kubelet systemd service file
@@ -300,10 +302,4 @@ echo "  [✓] Kubelet service started."
 echo
 echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] Worker node setup is complete."
-echo "------------------------------------------------------------------------"
-echo "  [ACTION NEEDED] Approve the node CSR:"
-echo "  This ./setup-worker.sh created and the Certificate Signing Request (CSR)"
-echo "  requested by 'system:node:${NODE_NAME}'. You have to manually approve it using:"
-echo "    kubectl get csr"
-echo "    kubectl certificate approve <the-csr-name>"
 echo "------------------------------------------------------------------------"
