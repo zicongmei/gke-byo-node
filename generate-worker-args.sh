@@ -9,7 +9,7 @@
 #              creation and approval process, eliminating the need for manual
 #              CSR approval on the control plane.
 #
-# Usage: ./generate-worker-args.sh <new-worker-node-name>
+# Usage: ./generate-worker-args.sh --node <new-worker-node-name> --version <kubernetes-version>
 #
 # Requirements:
 #   - kubectl connected to the target cluster with permissions to create and
@@ -21,8 +21,23 @@
 set -euo pipefail
 
 # --- Sanity Checks ---
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <new-worker-node-name>"
+# Initialize variables
+NODE_NAME=""
+K8S_VERSION=""
+
+# Parse named arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --node) NODE_NAME="$2"; shift ;;
+        --version) K8S_VERSION="$2"; shift ;;
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"; exit 1 ;;
+    esac
+    shift
+done
+
+if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"
     exit 1
 fi
 
@@ -44,9 +59,9 @@ fi
 
 
 # --- Configuration ---
-readonly NODE_NAME="$1"
+# Arguments are already assigned to NODE_NAME and K8S_VERSION from parsing loop
 
-echo "--- Preparing arguments for worker node: ${NODE_NAME} ---"
+echo "--- Preparing arguments for worker node: ${NODE_NAME} (K8s Version: ${K8S_VERSION}) ---"
 
 # --- Cluster Information Discovery ---
 echo "--> Discovering cluster information..."
@@ -196,14 +211,14 @@ echo "1. Copy the 'setup-worker.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\""
+echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\""
 echo
 echo "3. Approve the node CSR:"
 echo "  This script automatically created and the Certificate Signing Request (CSR)"
 echo "  for '${NODE_NAME}'. You can manually approve it on the control plane using:"
 echo "    kubectl get csr"
 echo "    kubectl certificate approve"
-echo 
+echo
 echo "4. Verify the node has joined:"
 echo "   kubectl get nodes"
 echo

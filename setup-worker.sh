@@ -21,10 +21,11 @@ CLUSTER_CA_CERT_BASE64=""
 NODE_PRIVATE_KEY_BASE64=""
 NODE_CLIENT_CERT_BASE64="" # New required argument
 CLUSTER_DNS_IP="10.96.0.10"
+VERSION="" # New required argument for Kubernetes version
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --cluster-dns-ip <dns-ip>"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --cluster-dns-ip <dns-ip> --version <k8s-version>"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -35,6 +36,7 @@ while [[ "$#" -gt 0 ]]; do
         --node-private-key-base64) NODE_PRIVATE_KEY_BASE64="$2"; shift ;;
         --node-client-cert-base64) NODE_CLIENT_CERT_BASE64="$2"; shift ;;
         --cluster-dns-ip) CLUSTER_DNS_IP="$2"; shift ;;
+        --version) VERSION="$2"; shift ;; # Added version argument
         --help) print_usage; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac
@@ -45,13 +47,14 @@ if [ -z "$NODE_NAME" ] || \
    [ -z "$API_SERVER_URL" ] || \
    [ -z "$CLUSTER_CA_CERT_BASE64" ] || \
    [ -z "$NODE_PRIVATE_KEY_BASE64" ] || \
-   [ -z "$NODE_CLIENT_CERT_BASE64" ]; then # Added check for new argument
+   [ -z "$NODE_CLIENT_CERT_BASE64" ] || \
+   [ -z "$VERSION" ]; then # Added check for new argument
     echo "Error: Missing required arguments."
     print_usage
     exit 1
 fi
 
-echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} ---"
+echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}) ---"
 
 # Determine architecture for GKE containerd build and CNI plugins
 ARCH=$(dpkg --print-architecture)
@@ -67,7 +70,7 @@ fi
 # --- Step 1: System Preparation ---
 echo "--> [1/6] Preparing system: updating packages and disabling swap..."
 apt-get update >/dev/null
-apt-get install -y ca-certificates curl gpg apt-transport-https >/dev/null
+apt-get install -y ca-certificates curl gpg apt-transport-https >/dev/null # These are general utilities, not K8s components
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 echo "  [✓] System prepared."
@@ -124,16 +127,28 @@ systemctl restart containerd
 echo "  [✓] Containerd installed, configured, and service started."
 
 # --- Step 4: Install Kubernetes Components ---
-echo "--> [4/6] Installing kubelet, kubeadm, and kubectl..."
-mkdir -p /etc/apt/keyrings
-# Remove existing keyring file to prevent potential overwrite prompts
-rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list >/dev/null
-apt-get update >/dev/null
-# Removed kubernetes-cni from apt-get install as we are downloading it manually
-apt-get install -y kubelet kubeadm kubectl >/dev/null
-apt-mark hold kubelet kubeadm kubectl
+echo "--> [4/6] Installing kubelet and kubectl..."
+# Removed apt repository setup and apt-get install for kubelet, kubeadm, kubectl
+# as they are now downloaded directly and kubeadm is explicitly not installed.
+
+# Download kubelet
+KUBELET_DOWNLOAD_URL="https://storage.googleapis.com/gke-release/kubernetes/release/v${VERSION}/bin/linux/${ARCH}/kubelet"
+echo "  --> Downloading kubelet from ${KUBELET_DOWNLOAD_URL}..."
+if ! curl -sL "${KUBELET_DOWNLOAD_URL}" -o /usr/bin/kubelet; then # Download to /usr/bin to match ExecStart path
+    echo "Error: Failed to download kubelet from ${KUBELET_DOWNLOAD_URL}. Exiting."
+    exit 1
+fi
+chmod +x /usr/bin/kubelet
+
+# Download kubectl
+KUBECTL_DOWNLOAD_URL="https://storage.googleapis.com/gke-release/kubernetes/release/v${VERSION}/bin/linux/${ARCH}/kubectl"
+echo "  --> Downloading kubectl from ${KUBECTL_DOWNLOAD_URL}..."
+if ! curl -sL "${KUBECTL_DOWNLOAD_URL}" -o /usr/bin/kubectl; then # Download to /usr/bin
+    echo "Error: Failed to download kubectl from ${KUBECTL_DOWNLOAD_URL}. Exiting."
+    exit 1
+fi
+chmod +x /usr/bin/kubectl
+
 echo "  [✓] Kubernetes components installed."
 
 # --- Step 5: Configure Kubernetes Directories and Credentials ---
@@ -143,7 +158,7 @@ mkdir -p /var/lib/kubelet /var/lib/kube-proxy /etc/kubernetes/pki
 # Decode and place credentials
 echo "${CLUSTER_CA_CERT_BASE64}" | base64 -d > /etc/kubernetes/pki/ca.crt
 echo "${NODE_PRIVATE_KEY_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.key"
-echo "${NODE_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.crt" # Place client cert (FIXED TYPO: BASE664 -> BASE64)
+echo "${NODE_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.crt"
 chmod 600 "/var/lib/kubelet/${NODE_NAME}.key"
 chmod 644 "/var/lib/kubelet/${NODE_NAME}.crt" # Client cert can be readable by kubelet
 
