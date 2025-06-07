@@ -69,8 +69,9 @@ fi
 
 # --- Step 1: System Preparation ---
 echo "--> [1/6] Preparing system: updating packages and disabling swap..."
-apt-get update >/dev/null
-apt-get install -y ca-certificates curl gpg apt-transport-https >/dev/null # These are general utilities, not K8s components
+# apt-get update >/dev/null
+# # Add 'dialog' to ensure debconf frontends work correctly and avoid warnings
+# apt-get install -y ca-certificates curl gpg apt-transport-https dialog >/dev/null
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 echo "  [✓] System prepared."
@@ -78,8 +79,8 @@ echo "  [✓] System prepared."
 # --- Step 2: Install CNI Plugins ---
 echo "--> [2/6] Installing CNI plugins..."
 mkdir -p /opt/cni/bin
-CNI_PLUGINS_VERSION="v1.5.1-gke.7"
-CNI_PLUGINS_URL="https://storage.googleapis.com/gke-multi-cloud-api-release/cni-plugins/${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-${CNI_PLUGINS_VERSION}.tgz"
+CNI_PLUGINS_VERSION="v1.5.1"
+CNI_PLUGINS_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-${CNI_PLUGINS_VERSION}.tgz"
 curl -sL "${CNI_PLUGINS_URL}" -o cni-plugins.tgz
 if [ ! -f cni-plugins.tgz ]; then
     echo "Error: Downloaded cni-plugins.tgz not found. Exiting."
@@ -128,8 +129,17 @@ echo "  [✓] Containerd installed, configured, and service started."
 
 # --- Step 4: Install Kubernetes Components ---
 echo "--> [4/6] Installing kubelet and kubectl..."
-# Removed apt repository setup and apt-get install for kubelet, kubeadm, kubectl
-# as they are now downloaded directly and kubeadm is explicitly not installed.
+
+echo "  --> Checking for and removing existing kubelet and kubectl binaries..."
+if [ -f /usr/bin/kubelet ]; then
+    echo "    [i] Found existing /usr/bin/kubelet. Removing..."
+    rm -f /usr/bin/kubelet
+fi
+if [ -f /usr/bin/kubectl ]; then
+    echo "    [i] Found existing /usr/bin/kubectl. Removing..."
+    rm -f /usr/bin/kubectl
+fi
+echo "  [✓] Existing Kubernetes binaries removed (if present)."
 
 # Download kubelet
 KUBELET_DOWNLOAD_URL="https://storage.googleapis.com/gke-release/kubernetes/release/v${VERSION}/bin/linux/${ARCH}/kubelet"
@@ -281,6 +291,9 @@ echo
 echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] Worker node setup is complete."
 echo "------------------------------------------------------------------------"
-echo "The worker node '${NODE_NAME}' should now be registered and ready."
-echo "You can verify its status on the control plane using 'kubectl get nodes'."
+echo "  [ACTION NEEDED] Approve the node CSR:"
+echo "  This ./setup-worker.sh created and the Certificate Signing Request (CSR)"
+echo "  requested by 'system:node:${NODE_NAME}'. You have to manually approve it using:"
+echo "    kubectl get csr"
+echo "    kubectl certificate approve <the-csr-name>"
 echo "------------------------------------------------------------------------"

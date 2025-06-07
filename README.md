@@ -1,11 +1,122 @@
 # gke-byo-node
 
-1. config the kubectl pointing to the k8s cluster
-1. run the `./generate-worker-args.sh --node ubuntu-1 --version 1.28.0` on your work station (replace `1.28.0` with your desired Kubernetes version)
-1. copy the setup-worker.sh to the k8s node `scp setup-worker.sh <user>@<node>:~`
-1. execute the  setup-worker.sh  with argument provided by generate-worker-args.sh
-   ```
-   sudo ./setup-worker.sh --name "ubuntu-1" --api-url ...
-   ```
-1. Approve the CSR
-1. The node should be registered to k8s. See the ndoe in `kubectl get node`
+This code provision a Linux machine into kubernetes worker node.
+
+## 1. Quick Start
+
+Follow these steps to quickly add a new custom worker node to your Kubernetes cluster:
+
+### Prerequisites:
+
+*   **Workstation/Control Plane**:
+    *   `kubectl` installed and configured to connect to your Kubernetes cluster.
+    *   `openssl` installed.
+*   **New Worker Node (Target)**:
+    *   An Linux Linux machine (e.g., Ubuntu 20.04 LTS or 22.04 LTS) with `sudo` access.
+    *   `curl` installed (usually pre-installed).
+    *   Network connectivity to your Kubernetes API server.
+
+### Steps:
+
+1.  **Configure `kubectl` on your workstation**:
+    Ensure your `kubectl` context is set to the target Kubernetes cluster where you want to add the node. You can verify this with `kubectl config current-context`.
+
+2.  **Generate Worker Node Arguments on your workstation**:
+    Navigate to the directory containing `generate-worker-args.sh` and execute it. Provide a unique name for your new worker node and the *exact GKE Kubernetes version* you intend to use.
+    ```bash
+    ./generate-worker-args.sh --node <your-new-node-name> --version <kubernetes-version>
+    ```
+    **Example**:
+    ```bash
+    ./generate-worker-args.sh --node ubuntu-worker-01 --version 1.32.0-gke.1008000
+    ```
+    This script will:
+    *   Discover cluster details.
+    *   Generate a private key and CSR for your node.
+    *   **Automatically approve** the CSR in your Kubernetes cluster.
+    *   Output a `sudo ./setup-worker.sh ...` command. **Copy this entire command.**
+
+    *Note: The `--version` argument must be a specific GKE version (e.g., `1.32.0-gke.1008000`). You can find available GKE versions relevant to your cluster from GKE release notes.*
+
+3.  **Copy or download `setup-worker.sh` to the new worker node**:
+    Use `scp` or a similar tool to transfer the `setup-worker.sh` script to your new Ubuntu worker node.
+    ```bash
+    scp setup-worker.sh <user>@<node-ip-address>:~
+    ```
+
+    This script can also be downloaded from github.
+    ```
+    curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup-worker.sh -o setup-worker.sh
+    chmod +x setup-worker.sh
+    ```
+
+4.  **Execute `setup-worker.sh` on the new worker node**:
+    SSH into your new worker node. Navigate to the directory of `setup-worker.sh`.
+    Then, paste and execute the full command that was output by `generate-worker-args.sh` in Step 2. Remember to run it with `sudo`.
+    ```bash
+    sudo ./setup-worker.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0-gke.1008000"
+    ```
+    This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found before installing the GKE-specific ones.
+
+5.  **Approve Node CSR**:
+    This ./setup-worker.sh  created and the Certificate Signing Request (CSR)
+    requested by 'system:node:${NODE_NAME}'. You have to manually approve it using:
+    ```
+    kubectl get csr
+    kubectl certificate approve <the-csr-name>
+    ```
+
+    Example 
+    ```
+    $ kubectl get csr
+    NAME        AGE    SIGNERNAME                                    REQUESTOR              REQUESTEDDURATION   CONDITION
+    csr-jqktb   25s    kubernetes.io/kube-apiserver-client-kubelet   system:node:ubuntu-1   <none>              Pending
+    $ kubectl certificate approve csr-jqktb
+    certificatesigningrequest.certificates.k8s.io/csr-jqktb approved
+    ```
+
+
+6.  **Verify Node Registration**:
+    On your workstation (where `kubectl` is configured), run the following command to check if your new node has successfully joined the cluster:
+    ```bash
+    kubectl get nodes
+    ```
+    You should see your new node (`<your-new-node-name>`) listed with a `Ready` status.
+
+## 2. What the Code Does
+
+This repository provides a pair of shell scripts designed to simplify the process of adding custom, "Bring Your Own" (BYO) worker nodes to a Kubernetes cluster that doesn't rely on `kubeadm` for node bootstrapping, such as Google Kubernetes Engine (GKE) clusters configured for custom node pools.
+
+The core problem these scripts solve is the manual complexity of setting up a new Kubernetes worker node, which involves:
+*   Generating TLS certificates for the kubelet to authenticate with the Kubernetes API server.
+*   Getting these certificates signed by the cluster's Certificate Authority (CA).
+*   Installing and configuring the container runtime (e.g., containerd).
+*   Installing and configuring CNI plugins.
+*   Installing and configuring the `kubelet` and `kubectl` binaries.
+*   Setting up the necessary kubeconfig files.
+
+This automation is particularly useful for scenarios where you need to integrate custom virtual machines or bare-metal servers into an existing GKE cluster as worker nodes, providing flexibility beyond standard GKE node pools.
+
+### `generate-worker-args.sh` (Run on your workstation/control plane)
+
+This script is executed on a machine with `kubectl` configured to access your target Kubernetes cluster. Its primary functions are:
+*   **Cluster Information Discovery**: Automatically fetches the Kubernetes API server URL, cluster CA certificate, and (optionally) the cluster DNS IP from your current `kubectl` context.
+*   **Credential Generation**: Generates a unique private key and a Certificate Signing Request (CSR) for the new worker node.
+*   **Automated CSR Approval**: Submits the generated CSR to the Kubernetes API and automatically approves it, eliminating the need for manual intervention (`kubectl certificate approve <node-name>`).
+*   **Output Generation**: Prints a `setup-worker.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
+
+**Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs) and `openssl`.
+
+### `setup-worker.sh` (Run on the new worker node)
+
+This script is executed on the target Ubuntu worker node, using the arguments provided by `generate-worker-args.sh`. It performs the following setup steps:
+*   **System Preparation**: Updates package lists, installs essential utilities (curl, gpg, apt-transport-https, dialog), and disables swap (a Kubernetes requirement).
+*   **CNI Plugin Installation**: Downloads and installs a GKE-compatible version of CNI plugins (Container Network Interface) to `/opt/cni/bin`.
+*   **Containerd Runtime Installation**: Downloads and installs a GKE-compatible version of `containerd` from Google Cloud Storage, configures it to use the `systemd` cgroup driver, and enables/starts its service.
+*   **Kubernetes Component Installation**: Downloads and installs specific GKE-compatible versions of `kubelet` and `kubectl` binaries to `/usr/bin`. It also cleans up any pre-existing binaries to ensure a clean installation.
+*   **Credential Placement**: Decodes and places the cluster CA certificate, the node's private key, and its pre-signed client certificate into their respective paths (`/etc/kubernetes/pki/ca.crt`, `/var/lib/kubelet/<node-name>.key`, `/var/lib/kubelet/<node-name>.crt`).
+*   **Kubeconfig Generation**: Creates `kubeconfig` files for `kubelet` and `kube-proxy` in `/var/lib/kubelet/kubeconfig` and `/var/lib/kube-proxy/kubeconfig`, embedding the signed certificates and cluster information.
+*   **Kubelet Configuration**: Creates the `kubelet` configuration file (`/var/lib/kubelet/config.yaml`) and its systemd service unit file (`/etc/systemd/system/kubelet.service`), ensuring it starts with the correct arguments and points to the right configuration and kubeconfig.
+*   **Service Startup**: Reloads systemd daemon and starts the `kubelet` service, registering the node with the Kubernetes cluster.
+
+**Prerequisites**: Ubuntu Linux (tested on recent versions), `sudo` privileges, `curl`.
