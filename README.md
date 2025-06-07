@@ -38,27 +38,21 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     *   **Automatically approve** the CSR in your Kubernetes cluster.
     *   Output a `sudo ./setup-worker.sh ...` command. **Copy this entire command.**
 
-3.  **Copy or download `setup-worker.sh` to the new worker node**:
-    Use `scp` or a similar tool to transfer the `setup-worker.sh` script to your new Ubuntu worker node.
-    ```bash
-    scp setup-worker.sh <user>@<node-ip-address>:~
-    ```
-
-    This script can also be downloaded from github.
+3.  **Execute `setup-worker.sh` on the new worker node**:
+    SSH into your new worker node. 
+    
+    Download the setup-worker.sh.
     ```
     curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup-worker.sh -o setup-worker.sh
     chmod +x setup-worker.sh
     ```
-
-4.  **Execute `setup-worker.sh` on the new worker node**:
-    SSH into your new worker node. Navigate to the directory of `setup-worker.sh`.
     Then, paste and execute the full command that was output by `generate-worker-args.sh` in Step 2. Remember to run it with `sudo`.
     ```bash
     sudo ./setup-worker.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
     ```
     This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found.
 
-5.  **Verify Node Registration**:
+4.  **Verify Node Registration**:
     On your workstation (where `kubectl` is configured), run the following command to check if your new node has successfully joined the cluster:
     ```bash
     kubectl get nodes
