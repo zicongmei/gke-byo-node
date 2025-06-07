@@ -12,7 +12,7 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     *   `kubectl` installed and configured to connect to your Kubernetes cluster.
     *   `openssl` installed.
 *   **New Worker Node (Target)**:
-    *   An Linux Linux machine (e.g., Ubuntu 20.04 LTS or 22.04 LTS) with `sudo` access.
+    *   An Linux Linux machine (e.g., Ubuntu, Debian, Centos) with `sudo` access.
     *   `curl` installed (usually pre-installed).
     *   Network connectivity to your Kubernetes API server.
 
@@ -95,4 +95,4 @@ This script is executed on the target Ubuntu worker node, using the pre-generate
 *   **Kubelet Configuration**: Creates the `kubelet` configuration file (`/var/lib/kubelet/config.yaml`) and its systemd service unit file (`/etc/systemd/system/kubelet.service`), ensuring it starts with the correct arguments and points to the right configuration and kubeconfig.
 *   **Service Startup**: Reloads systemd daemon and starts the `kubelet` service, registering the node with the Kubernetes cluster.
 
-**Prerequisites**: Ubuntu Linux (tested on recent versions), `sudo` privileges, `curl`.
+**Prerequisites**: Linux (tested on Ubuntu, Debian, Centos), `sudo` privileges, `curl`.
