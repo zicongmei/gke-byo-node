@@ -85,10 +85,7 @@ esac
 echo "  [✓] Detected architecture: ${ARCH}"
 
 # --- Step 1: System Preparation ---
-echo "--> [1/6] Preparing system: updating packages and disabling swap..."
-# apt-get update >/dev/null
-# # Add 'dialog' to ensure debconf frontends work correctly and avoid warnings
-# apt-get install -y ca-certificates curl gpg apt-transport-https dialog >/dev/null
+echo "--> [1/6] Preparing system: disabling swap..."
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 echo "  [✓] System prepared."
@@ -96,7 +93,6 @@ echo "  [✓] System prepared."
 # --- Step 2: Install CNI Plugins ---
 echo "--> [2/6] Installing CNI plugins..."
 mkdir -p /opt/cni/bin
-# CNI_PLUGINS_VERSION="v1.5.1" # Now dynamically set by argument or default
 CNI_PLUGINS_URL="https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGINS_VERSION}.tgz"
 curl -sL "${CNI_PLUGINS_URL}" -o cni-plugins.tgz
 if [ ! -f cni-plugins.tgz ]; then
