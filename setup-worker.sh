@@ -66,15 +66,23 @@ CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION#v}"
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
 # Determine architecture for containerd and CNI plugins
-ARCH=$(dpkg --print-architecture)
-if [ "$ARCH" == "amd64" ]; then
-    ARCH="amd64"
-elif [ "$ARCH" == "arm64" ]; then
-    ARCH="arm64"
-else
-    echo "Error: Unsupported architecture: $ARCH. Expected amd64 or arm64."
-    exit 1
-fi
+echo "  --> Determining architecture..."
+MACHINE_ARCH=$(uname -m)
+ARCH=""
+
+case "$MACHINE_ARCH" in
+    "x86_64")
+        ARCH="amd64"
+        ;;
+    "aarch64")
+        ARCH="arm64"
+        ;;
+    *)
+        echo "Error: Unsupported machine architecture: $MACHINE_ARCH. Expected x86_64 (amd64) or aarch64 (arm64)."
+        exit 1
+        ;;
+esac
+echo "  [✓] Detected architecture: ${ARCH}"
 
 # --- Step 1: System Preparation ---
 echo "--> [1/6] Preparing system: updating packages and disabling swap..."
@@ -123,7 +131,7 @@ echo "  --> Configuring containerd (ensuring systemd cgroup driver)..."
 if [ ! -f /etc/containerd/config.toml ]; then
     echo "  [W] /etc/containerd/config.toml not found after extraction. Generating default..."
     mkdir -p /etc/containerd
-    containerd config default > /etc/containerd/config.toml
+    /usr/local/bin/containerd config default > /etc/containerd/config.toml
 fi
 # Ensure cgroup driver is set to systemd, which is required for K8s
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
