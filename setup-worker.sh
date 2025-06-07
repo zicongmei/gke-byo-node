@@ -56,7 +56,7 @@ fi
 
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}) ---"
 
-# Determine architecture for GKE containerd build and CNI plugins
+# Determine architecture for containerd and CNI plugins
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" == "amd64" ]; then
     ARCH="amd64"
@@ -96,7 +96,7 @@ echo "--> [3/6] Installing containerd runtime..."
 
 echo "  --> Downloading containerd for ${ARCH}..."
 # Use -sL for silent and follow redirects
-curl -sL https://storage.googleapis.com/gke-multi-cloud-api-release/containerd/v1.7.22-gke.0/cri-containerd-1.7.22-gke.0-linux-${ARCH}.tar.gz -o containerd.tar.gz
+curl -sL https://github.com/containerd/containerd/releases/download/v1.7.22/cri-containerd-1.7.22-linux-${ARCH}.tar.gz -o containerd.tar.gz
 if [ ! -f containerd.tar.gz ]; then
     echo "Error: Downloaded containerd.tar.gz not found. Exiting."
     exit 1
@@ -110,7 +110,7 @@ tar -xvf containerd.tar.gz -C / >/dev/null
 rm containerd.tar.gz
 
 echo "  --> Configuring containerd (ensuring systemd cgroup driver)..."
-# Ensure /etc/containerd/config.toml exists (it usually does from the GKE tarball, but good to be safe)
+# Ensure /etc/containerd/config.toml exists (it usually does, but good to be safe)
 if [ ! -f /etc/containerd/config.toml ]; then
     echo "  [W] /etc/containerd/config.toml not found after extraction. Generating default..."
     mkdir -p /etc/containerd
@@ -142,7 +142,7 @@ fi
 echo "  [✓] Existing Kubernetes binaries removed (if present)."
 
 # Download kubelet
-KUBELET_DOWNLOAD_URL="https://storage.googleapis.com/gke-release/kubernetes/release/v${VERSION}/bin/linux/${ARCH}/kubelet"
+KUBELET_DOWNLOAD_URL="https://dl.k8s.io/release/v${VERSION}/bin/linux/${ARCH}/kubelet"
 echo "  --> Downloading kubelet from ${KUBELET_DOWNLOAD_URL}..."
 if ! curl -sL "${KUBELET_DOWNLOAD_URL}" -o /usr/bin/kubelet; then # Download to /usr/bin to match ExecStart path
     echo "Error: Failed to download kubelet from ${KUBELET_DOWNLOAD_URL}. Exiting."
@@ -151,7 +151,7 @@ fi
 chmod +x /usr/bin/kubelet
 
 # Download kubectl
-KUBECTL_DOWNLOAD_URL="https://storage.googleapis.com/gke-release/kubernetes/release/v${VERSION}/bin/linux/${ARCH}/kubectl"
+KUBECTL_DOWNLOAD_URL="https://dl.k8s.io/release/v${VERSION}/bin/linux/${ARCH}/kubectl"
 echo "  --> Downloading kubectl from ${KUBECTL_DOWNLOAD_URL}..."
 if ! curl -sL "${KUBECTL_DOWNLOAD_URL}" -o /usr/bin/kubectl; then # Download to /usr/bin
     echo "Error: Failed to download kubectl from ${KUBECTL_DOWNLOAD_URL}. Exiting."
@@ -181,7 +181,8 @@ kubectl config set-context default --cluster=k8s-manual --user="system:node:${NO
 kubectl config use-context default --kubeconfig=/var/lib/kubelet/kubeconfig >/dev/null
 
 # Fix: Create /etc/kubernetes/bootstrap-kubelet.conf to satisfy stat check
-# Since we are using pre-signed certs, this file will contain the fully configured kubeconfig.
+# Since we are using pre-signed certs, the kubelet directly uses --kubeconfig=/var/lib/kubelet/kubeconfig.
+# This file is copied for compatibility, as some tools or older kubelet setups might expect bootstrap-kubelet.conf to exist.
 mkdir -p /etc/kubernetes
 cp /var/lib/kubelet/kubeconfig /etc/kubernetes/bootstrap-kubelet.conf
 echo "  [✓] Created /etc/kubernetes/bootstrap-kubelet.conf"
