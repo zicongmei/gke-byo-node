@@ -22,10 +22,12 @@ NODE_PRIVATE_KEY_BASE64=""
 NODE_CLIENT_CERT_BASE64="" # New required argument
 CLUSTER_DNS_IP="10.96.0.10"
 VERSION="" # New required argument for Kubernetes version
+CONTAINERD_VERSION="1.7.22" # Default value, can be overridden by argument
+CNI_PLUGINS_VERSION="1.5.1" # Default value, can be overridden by argument (without 'v')
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --cluster-dns-ip <dns-ip> --version <k8s-version>"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -37,6 +39,8 @@ while [[ "$#" -gt 0 ]]; do
         --node-client-cert-base64) NODE_CLIENT_CERT_BASE64="$2"; shift ;;
         --cluster-dns-ip) CLUSTER_DNS_IP="$2"; shift ;;
         --version) VERSION="$2"; shift ;; # Added version argument
+        --containerd-version) CONTAINERD_VERSION="$2"; shift ;; # New argument
+        --cni-version) CNI_PLUGINS_VERSION="$2"; shift ;; # New argument
         --help) print_usage; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac
@@ -54,7 +58,7 @@ if [ -z "$NODE_NAME" ] || \
     exit 1
 fi
 
-echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}) ---"
+echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
 # Determine architecture for containerd and CNI plugins
 ARCH=$(dpkg --print-architecture)
@@ -79,8 +83,8 @@ echo "  [✓] System prepared."
 # --- Step 2: Install CNI Plugins ---
 echo "--> [2/6] Installing CNI plugins..."
 mkdir -p /opt/cni/bin
-CNI_PLUGINS_VERSION="v1.5.1"
-CNI_PLUGINS_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-${CNI_PLUGINS_VERSION}.tgz"
+# CNI_PLUGINS_VERSION="v1.5.1" # Now dynamically set by argument or default
+CNI_PLUGINS_URL="https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGINS_VERSION}.tgz"
 curl -sL "${CNI_PLUGINS_URL}" -o cni-plugins.tgz
 if [ ! -f cni-plugins.tgz ]; then
     echo "Error: Downloaded cni-plugins.tgz not found. Exiting."
@@ -94,9 +98,9 @@ echo "  [✓] CNI plugins installed."
 # --- Step 3: Install Container Runtime (containerd) ---
 echo "--> [3/6] Installing containerd runtime..."
 
-echo "  --> Downloading containerd for ${ARCH}..."
+echo "  --> Downloading containerd for ${ARCH} (version ${CONTAINERD_VERSION})..."
 # Use -sL for silent and follow redirects
-curl -sL https://github.com/containerd/containerd/releases/download/v1.7.22/cri-containerd-1.7.22-linux-${ARCH}.tar.gz -o containerd.tar.gz
+curl -sL "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/cri-containerd-${CONTAINERD_VERSION}-linux-${ARCH}.tar.gz" -o containerd.tar.gz
 if [ ! -f containerd.tar.gz ]; then
     echo "Error: Downloaded containerd.tar.gz not found. Exiting."
     exit 1

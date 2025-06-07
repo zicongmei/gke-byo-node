@@ -22,12 +22,14 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     Ensure your `kubectl` context is set to the target Kubernetes cluster where you want to add the node. You can verify this with `kubectl config current-context`.
 
 2.  **Generate Worker Node Arguments on your workstation**:
-    Navigate to the directory containing `generate-worker-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use.
+    Navigate to the directory containing `generate-worker-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
     ```bash
-    ./generate-worker-args.sh --node <your-new-node-name> --version <kubernetes-version>
+    ./generate-worker-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]
     ```
     **Example**:
     ```bash
+    ./generate-worker-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
+    # Or, using current default versions for containerd/cni:
     ./generate-worker-args.sh --node ubuntu-worker-01 --version 1.32.0
     ```
     This script will:
@@ -52,7 +54,7 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     SSH into your new worker node. Navigate to the directory of `setup-worker.sh`.
     Then, paste and execute the full command that was output by `generate-worker-args.sh` in Step 2. Remember to run it with `sudo`.
     ```bash
-    sudo ./setup-worker.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0"
+    sudo ./setup-worker.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
     ```
     This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found.
 
@@ -100,7 +102,7 @@ This automation is particularly useful for scenarios where you need to integrate
 This script is executed on a machine with `kubectl` configured to access your target Kubernetes cluster. Its primary functions are:
 *   **Cluster Information Discovery**: Automatically fetches the Kubernetes API server URL, cluster CA certificate, and (optionally) the cluster DNS IP from your current `kubectl` context.
 *   **Credential Generation**: Generates a unique private key and a Certificate Signing Request (CSR) for the new worker node.
-
+*   **Version Parameterization**: Allows specifying optional versions for `containerd` and CNI plugins, defaulting to commonly used "current" versions if not provided.
 *   **Output Generation**: Prints a `setup-worker.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
 
 **Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs) and `openssl`.
@@ -109,8 +111,8 @@ This script is executed on a machine with `kubectl` configured to access your ta
 
 This script is executed on the target Ubuntu worker node, using the pre-generated arguments provided by `generate-worker-args.sh`. It performs the following setup steps:
 *   **System Preparation**: Updates package lists, installs essential utilities (curl, gpg, apt-transport-https, dialog), and disables swap (a Kubernetes requirement).
-*   **CNI Plugin Installation**: Downloads and installs a standard version of CNI plugins (Container Network Interface) to `/opt/cni/bin`.
-*   **Containerd Runtime Installation**: Downloads and installs a specific version of `containerd` from its GitHub releases, configures it to use the `systemd` cgroup driver, and enables/starts its service.
+*   **CNI Plugin Installation**: Downloads and installs a standard version of CNI plugins (Container Network Interface) to `/opt/cni/bin`, using the specified or default version.
+*   **Containerd Runtime Installation**: Downloads and installs a specific version of `containerd` from its GitHub releases, configures it to use the `systemd` cgroup driver, and enables/starts its service, using the specified or default version.
 *   **Kubernetes Component Installation**: Downloads and installs specific versions of `kubelet` and `kubectl` binaries from official Kubernetes releases (`dl.k8s.io`) to `/usr/bin`. It also cleans up any pre-existing binaries to ensure a clean installation.
 *   **Credential Placement**: Decodes and places the cluster CA certificate, the node's private key, and its pre-signed client certificate into their respective paths (`/etc/kubernetes/pki/ca.crt`, `/var/lib/kubelet/<node-name>.key`, `/var/lib/kubelet/<node-name>.crt`).
 *   **Kubeconfig Generation**: Creates `kubeconfig` files for `kubelet` and `kube-proxy` in `/var/lib/kubelet/kubeconfig` and `/var/lib/kube-proxy/kubeconfig`, embedding the signed certificates and cluster information.

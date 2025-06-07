@@ -24,22 +24,35 @@ set -euo pipefail
 # Initialize variables
 NODE_NAME=""
 K8S_VERSION=""
+CONTAINERD_VERSION_ARG="" # New optional argument for containerd version
+CNI_PLUGINS_VERSION_ARG="" # New optional argument for CNI plugins version (interpreting "csi" as cni plugins)
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --node) NODE_NAME="$2"; shift ;;
         --version) K8S_VERSION="$2"; shift ;;
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"; exit 1 ;;
+        --containerd-version) CONTAINERD_VERSION_ARG="$2"; shift ;;
+        --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;; # Renamed from csi-version for clarity
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"; exit 1 ;;
     esac
     shift
 done
 
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version>"
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"
     exit 1
 fi
+
+# Set default versions if not provided
+# These defaults correspond to the current versions hardcoded in setup-worker.sh
+readonly DEFAULT_CONTAINERD_VERSION="1.7.22"
+readonly DEFAULT_CNI_PLUGINS_VERSION="1.5.1" # The version part, without 'v'
+
+# Assign final versions for output
+CONTAINERD_VERSION=${CONTAINERD_VERSION_ARG:-${DEFAULT_CONTAINERD_VERSION}}
+CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION_ARG:-${DEFAULT_CNI_PLUGINS_VERSION}}
 
 if ! command -v kubectl &> /dev/null; then
     echo "Error: kubectl command not found. Please install it and configure it."
@@ -61,7 +74,7 @@ fi
 # --- Configuration ---
 # Arguments are already assigned to NODE_NAME and K8S_VERSION from parsing loop
 
-echo "--- Preparing arguments for worker node: ${NODE_NAME} (K8s Version: ${K8S_VERSION}) ---"
+echo "--- Preparing arguments for worker node: ${NODE_NAME} (K8s Version: ${K8S_VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
 # --- Cluster Information Discovery ---
 echo "--> Discovering cluster information..."
@@ -211,7 +224,7 @@ echo "1. Copy the 'setup-worker.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\""
+echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
 echo
 echo "3. Approve the node CSR:"
 echo "  This ./setup-worker.sh  created and the Certificate Signing Request (CSR)"
