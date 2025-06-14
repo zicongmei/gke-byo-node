@@ -313,6 +313,9 @@ echo "  [✓] Kubelet service configured."
 # --- Step 7: Install and Configure Kube-proxy ---
 echo "--> [7/8] Installing and configuring kube-proxy..."
 
+apt update
+apt install iptables -y
+
 # Download kube-proxy
 KUBE_PROXY_DOWNLOAD_URL="https://dl.k8s.io/release/v${VERSION}/bin/linux/${ARCH}/kube-proxy"
 echo "  --> Downloading kube-proxy from ${KUBE_PROXY_DOWNLOAD_URL}..."
