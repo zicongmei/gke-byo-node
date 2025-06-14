@@ -261,6 +261,7 @@ metadata:
 spec:
   groups:
   - system:authenticated
+  - system:kube-proxy # Added for improved RBAC resolution for kube-proxy
   request: ${KUBE_PROXY_CSR_BASE64}
   signerName: kubernetes.io/kube-apiserver-client
   usages:

@@ -159,6 +159,10 @@ if [ -f /usr/bin/kubectl ]; then
     echo "    [i] Found existing /usr/bin/kubectl. Removing..."
     rm -f /usr/bin/kubectl
 fi
+if [ -f /usr/bin/kube-proxy ]; then
+    echo "    [i] Found existing /usr/bin/kube-proxy. Removing..."
+    rm -f /usr/bin/kube-proxy
+fi
 echo "  [✓] Existing Kubernetes binaries removed (if present)."
 
 # Download kubelet
