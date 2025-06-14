@@ -143,6 +143,36 @@ else
     echo "  [✓] Cluster DNS IP: ${CLUSTER_DNS_IP}"
 fi
 
+# --- Ensure Kube-proxy RBAC for ServiceCIDRs ---
+echo "--> Ensuring kube-proxy has permissions for ServiceCIDRs..."
+# This ClusterRole and ClusterRoleBinding are needed by kube-proxy in newer Kubernetes
+# versions (e.g., 1.29+) to watch ServiceCIDRs, especially in dual-stack clusters
+# or with certain CNI/IPAM modes, preventing "failed to list ServiceCIDR" errors.
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:kube-proxy-servicecidrs-reader
+rules:
+- apiGroups: ["networking.k8s.io"]
+  resources: ["servicecidrs"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:kube-proxy-servicecidrs-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-proxy-servicecidrs-reader
+subjects:
+- kind: User
+  name: system:kube-proxy
+  apiGroup: rbac.authorization.k8s.io
+EOF
+echo "  [✓] Kube-proxy ServiceCIDR RBAC ensured."
+
 
 # --- Credential Generation and Approval ---
 echo "--> Generating credentials for ${NODE_NAME}..."
@@ -262,7 +292,7 @@ spec:
   groups:
   - system:authenticated
   - system:kube-proxy # Added for improved RBAC resolution for kube-proxy
-  request: ${KUBE_PROXY_CSR_BASE64}
+  request: ${KUBE_PROXY_CSR_BASE666}
   signerName: kubernetes.io/kube-apiserver-client
   usages:
   - client auth
