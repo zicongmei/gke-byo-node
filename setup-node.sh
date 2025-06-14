@@ -85,13 +85,13 @@ esac
 echo "  [✓] Detected architecture: ${ARCH}"
 
 # --- Step 1: System Preparation ---
-echo "--> [1/6] Preparing system: disabling swap..."
+echo "--> [1/8] Preparing system: disabling swap..."
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 echo "  [✓] System prepared."
 
 # --- Step 2: Install CNI Plugins ---
-echo "--> [2/6] Installing CNI plugins..."
+echo "--> [2/8] Installing CNI plugins..."
 mkdir -p /opt/cni/bin
 CNI_PLUGINS_URL="https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGINS_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGINS_VERSION}.tgz"
 curl -sL "${CNI_PLUGINS_URL}" -o cni-plugins.tgz
@@ -105,7 +105,7 @@ rm cni-plugins.tgz
 echo "  [✓] CNI plugins installed."
 
 # --- Step 3: Install Container Runtime (containerd) ---
-echo "--> [3/6] Installing containerd runtime..."
+echo "--> [3/8] Installing containerd runtime..."
 
 echo "  --> Downloading containerd for ${ARCH} (version ${CONTAINERD_VERSION})..."
 # Use -sL for silent and follow redirects
@@ -141,7 +141,7 @@ systemctl restart containerd
 echo "  [✓] Containerd installed, configured, and service started."
 
 # --- Step 4: Install Kubernetes Components ---
-echo "--> [4/6] Installing kubelet and kubectl..."
+echo "--> [4/8] Installing kubelet and kubectl..."
 
 echo "  --> Checking for and removing existing kubelet and kubectl binaries..."
 if [ -f /usr/bin/kubelet ]; then
@@ -175,7 +175,7 @@ chmod +x /usr/bin/kubectl
 echo "  [✓] Kubernetes components installed."
 
 # --- Step 5: Configure Kubernetes Directories and Credentials ---
-echo "--> [5/6] Placing credentials and kubeconfig files..."
+echo "--> [5/8] Placing credentials and kubeconfig files..."
 mkdir -p /var/lib/kubelet /var/lib/kube-proxy /etc/kubernetes/pki
 
 # Decode and place credentials
@@ -212,7 +212,7 @@ kubectl config use-context default --kubeconfig=/var/lib/kube-proxy/kubeconfig >
 echo "  [✓] Credentials and kubeconfigs created."
 
 # --- Step 6: Configure Kubelet Service ---
-echo "--> [6/6] Creating kubelet configuration and systemd service..."
+echo "--> [6/8] Creating kubelet configuration and systemd service..."
 
 # Clean up any kubeadm-generated drop-ins for kubelet service.
 # This prevents conflicting configurations like bootstrap-kubeconfig environment variables.
@@ -297,12 +297,58 @@ EOF
 
 echo "  [✓] Kubelet service configured."
 
-# --- Step 7: Start Services ---
-echo "--> [7/7] Enabling and starting kubelet service..."
+# --- Step 7: Install and Configure Kube-proxy ---
+echo "--> [7/8] Installing and configuring kube-proxy..."
+
+# Download kube-proxy
+KUBE_PROXY_DOWNLOAD_URL="https://dl.k8s.io/release/v${VERSION}/bin/linux/${ARCH}/kube-proxy"
+echo "  --> Downloading kube-proxy from ${KUBE_PROXY_DOWNLOAD_URL}..."
+if ! curl -sL "${KUBE_PROXY_DOWNLOAD_URL}" -o /usr/bin/kube-proxy; then
+    echo "Error: Failed to download kube-proxy from ${KUBE_PROXY_DOWNLOAD_URL}. Exiting."
+    exit 1
+fi
+chmod +x /usr/bin/kube-proxy
+
+# Create kube-proxy config file
+cat > /var/lib/kube-proxy/kube-proxy-config.yaml <<EOF
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+clientConnection:
+  kubeconfig: /var/lib/kube-proxy/kubeconfig
+mode: iptables
+metricsBindAddress: 0.0.0.0:10249
+healthzBindAddress: 0.0.0.0:10256
+EOF
+
+# Create kube-proxy systemd service file
+cat > /etc/systemd/system/kube-proxy.service <<EOF
+[Unit]
+Description=Kubernetes Kube-Proxy
+Documentation=https://github.com/kubernetes/kubernetes
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/kube-proxy \\
+  --config=/var/lib/kube-proxy/kube-proxy-config.yaml \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "  [✓] Kube-proxy installed and configured."
+
+
+# --- Step 8: Start Services ---
+echo "--> [8/8] Enabling and starting kubelet and kube-proxy services..."
 systemctl daemon-reload
 systemctl enable kubelet
 systemctl restart kubelet
-echo "  [✓] Kubelet service started."
+systemctl enable kube-proxy
+systemctl restart kube-proxy
+echo "  [✓] Kubelet and kube-proxy services started."
 echo
 echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] Worker node setup is complete."
