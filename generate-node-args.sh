@@ -7,7 +7,8 @@
 #              new worker node for a non-kubeadm Kubernetes cluster. It now
 #              automates the Kubernetes Certificate Signing Request (CSR)
 #              creation and approval process, eliminating the need for manual
-#              CSR approval on the control plane.
+#              CSR approval on the control plane. This script now also
+#              generates and approves certificates for kube-proxy.
 #
 # Usage: ./generate-node-args.sh --node <new-worker-node-name> --version <kubernetes-version>
 #
@@ -150,10 +151,11 @@ echo "--> Generating credentials for ${NODE_NAME}..."
 readonly TMP_DIR=$(mktemp -d)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 
-# Generate a private key for the node
+# --- Generate kubelet private key and CSR ---
+echo "  --> Generating kubelet private key and CSR..."
 openssl genrsa -out "${TMP_DIR}/${NODE_NAME}.key" 2048 &>/dev/null
 
-# Create an OpenSSL config file for the CSR
+# Create an OpenSSL config file for the kubelet CSR
 cat > "${TMP_DIR}/openssl-${NODE_NAME}.cnf" <<EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -167,15 +169,15 @@ keyUsage = keyEncipherment, dataEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 EOF
 
-# Generate the Certificate Signing Request (CSR)
+# Generate the Certificate Signing Request (CSR) for kubelet
 openssl req -new -key "${TMP_DIR}/${NODE_NAME}.key" -out "${TMP_DIR}/${NODE_NAME}.csr" -config "${TMP_DIR}/openssl-${NODE_NAME}.cnf" &>/dev/null
 
 readonly NODE_PRIVATE_KEY_BASE64=$(base64 -w 0 "${TMP_DIR}/${NODE_NAME}.key")
 readonly NODE_CSR_BASE64=$(base64 -w 0 "${TMP_DIR}/${NODE_NAME}.csr")
-echo "  [✓] Generated private key and CSR."
+echo "  [✓] Generated kubelet private key and CSR."
 
-# --- Kubernetes CSR creation and approval ---
-echo "--> Creating and approving CSR for ${NODE_NAME} in Kubernetes..."
+# --- Kubernetes CSR creation and approval for kubelet ---
+echo "--> Creating and approving CSR for kubelet ${NODE_NAME} in Kubernetes..."
 
 # Clean up any existing CSR for this node name to avoid conflicts on re-run
 kubectl delete csr "${NODE_NAME}" --ignore-not-found &>/dev/null
@@ -200,38 +202,107 @@ echo "${CSR_YAML}" | kubectl apply -f - >/dev/null
 
 # Approve the CSR
 kubectl certificate approve "${NODE_NAME}" >/dev/null
-echo "  [✓] CSR created and approved in Kubernetes."
-# User still need to manually approve the CSR for the node registration later.
+echo "  [✓] Kubelet CSR created and approved in Kubernetes."
 
 # Wait for certificate to be signed and fetch it
-echo "  --> Waiting for signed client certificate (up to 10 seconds)..."
+echo "  --> Waiting for signed kubelet client certificate (up to 10 seconds)..."
 NODE_CLIENT_CERT_BASE64=""
 for i in $(seq 1 10); do
     NODE_CLIENT_CERT_BASE64=$(kubectl get csr "${NODE_NAME}" -o jsonpath='{.status.certificate}' 2>/dev/null)
     if [ -n "${NODE_CLIENT_CERT_BASE64}" ]; then
-        echo "  [✓] Signed client certificate fetched."
+        echo "  [✓] Signed kubelet client certificate fetched."
         break
     fi
     sleep 1
 done
 
 if [ -z "${NODE_CLIENT_CERT_BASE64}" ]; then
-    echo "Error: Failed to fetch signed client certificate for ${NODE_NAME} after multiple attempts."
+    echo "Error: Failed to fetch signed kubelet client certificate for ${NODE_NAME} after multiple attempts."
     echo "Please check 'kubectl get csr ${NODE_NAME}' and 'kubectl describe csr ${NODE_NAME}' on the control plane."
+    exit 1
+fi
+
+# --- Generate kube-proxy private key and CSR ---
+echo "  --> Generating kube-proxy private key and CSR..."
+openssl genrsa -out "${TMP_DIR}/kube-proxy-${NODE_NAME}.key" 2048 &>/dev/null
+
+# Create an OpenSSL config file for the kube-proxy CSR
+cat > "${TMP_DIR}/openssl-kube-proxy-${NODE_NAME}.cnf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+[req_distinguished_name]
+CN = system:kube-proxy
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = clientAuth
+EOF
+
+# Generate the Certificate Signing Request (CSR) for kube-proxy
+openssl req -new -key "${TMP_DIR}/kube-proxy-${NODE_NAME}.key" -out "${TMP_DIR}/kube-proxy-${NODE_NAME}.csr" -config "${TMP_DIR}/openssl-kube-proxy-${NODE_NAME}.cnf" &>/dev/null
+
+readonly KUBE_PROXY_PRIVATE_KEY_BASE64=$(base64 -w 0 "${TMP_DIR}/kube-proxy-${NODE_NAME}.key")
+readonly KUBE_PROXY_CSR_BASE64=$(base64 -w 0 "${TMP_DIR}/kube-proxy-${NODE_NAME}.csr")
+echo "  [✓] Generated kube-proxy private key and CSR."
+
+# --- Kubernetes CSR creation and approval for kube-proxy ---
+echo "--> Creating and approving CSR for kube-proxy-${NODE_NAME} in Kubernetes..."
+
+# Clean up any existing CSR for this kube-proxy name to avoid conflicts on re-run
+kubectl delete csr "kube-proxy-${NODE_NAME}" --ignore-not-found &>/dev/null
+
+# Create CSR object in Kubernetes for kube-proxy
+KUBE_PROXY_CSR_YAML=$(cat <<EOF
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: kube-proxy-${NODE_NAME}
+spec:
+  groups:
+  - system:authenticated
+  request: ${KUBE_PROXY_CSR_BASE64}
+  signerName: kubernetes.io/kube-apiserver-client
+  usages:
+  - client auth
+EOF
+)
+
+echo "${KUBE_PROXY_CSR_YAML}" | kubectl apply -f - >/dev/null
+
+# Approve the kube-proxy CSR
+kubectl certificate approve "kube-proxy-${NODE_NAME}" >/dev/null
+echo "  [✓] Kube-proxy CSR created and approved in Kubernetes."
+
+# Wait for certificate to be signed and fetch it
+echo "  --> Waiting for signed kube-proxy client certificate (up to 10 seconds)..."
+KUBE_PROXY_CLIENT_CERT_BASE64=""
+for i in $(seq 1 10); do
+    KUBE_PROXY_CLIENT_CERT_BASE64=$(kubectl get csr "kube-proxy-${NODE_NAME}" -o jsonpath='{.status.certificate}' 2>/dev/null)
+    if [ -n "${KUBE_PROXY_CLIENT_CERT_BASE64}" ]; then
+        echo "  [✓] Signed kube-proxy client certificate fetched."
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "${KUBE_PROXY_CLIENT_CERT_BASE64}" ]; then
+    echo "Error: Failed to fetch signed kube-proxy client certificate for kube-proxy-${NODE_NAME} after multiple attempts."
+    echo "Please check 'kubectl get csr kube-proxy-${NODE_NAME}' and 'kubectl describe csr kube-proxy-${NODE_NAME}' on the control plane."
     exit 1
 fi
 
 # --- Final Output ---
 echo
 echo "------------------------------------------------------------------------"
-echo "  [SUCCESS] All arguments generated and client certificate approved."
+echo "  [SUCCESS] All arguments generated and client certificates approved."
 echo "------------------------------------------------------------------------"
 echo
 echo "1. Copy the 'setup-node.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
+echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --kube-proxy-private-key-base64 \"${KUBE_PROXY_PRIVATE_KEY_BASE64}\" --kube-proxy-client-cert-base64 \"${KUBE_PROXY_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
 echo
 echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
