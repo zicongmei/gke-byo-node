@@ -22,33 +22,33 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     Ensure your `kubectl` context is set to the target Kubernetes cluster where you want to add the node. You can verify this with `kubectl config current-context`.
 
 2.  **Generate Worker Node Arguments on your workstation**:
-    Navigate to the directory containing `generate-worker-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
+    Navigate to the directory containing `generate-node-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
     ```bash
-    ./generate-worker-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]
+    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]
     ```
     **Example**:
     ```bash
-    ./generate-worker-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
+    ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
     # Or, using current default versions for containerd/cni:
-    ./generate-worker-args.sh --node ubuntu-worker-01 --version 1.32.0
+    ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0
     ```
     This script will:
     *   Discover cluster details.
     *   Generate a private key and CSR for your node.
     *   **Automatically approve** the CSR in your Kubernetes cluster.
-    *   Output a `sudo ./setup-worker.sh ...` command. **Copy this entire command.**
+    *   Output a `sudo ./setup-node.sh ...` command. **Copy this entire command.**
 
-3.  **Execute `setup-worker.sh` on the new worker node**:
+3.  **Execute `setup-node.sh` on the new worker node**:
     SSH into your new worker node. 
     
-    Download the setup-worker.sh.
+    Download the setup-node.sh.
     ```
-    curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup-worker.sh -o setup-worker.sh
-    chmod +x setup-worker.sh
+    curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup-node.sh -o setup-node.sh
+    chmod +x setup-node.sh
     ```
-    Then, paste and execute the full command that was output by `generate-worker-args.sh` in Step 2. Remember to run it with `sudo`.
+    Then, paste and execute the full command that was output by `generate-node-args.sh` in Step 2. Remember to run it with `sudo`.
     ```bash
-    sudo ./setup-worker.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
+    sudo ./setup-node.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
     ```
     This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found.
 
@@ -73,19 +73,19 @@ The core problem these scripts solve is the manual complexity of setting up a ne
 
 This automation is particularly useful for scenarios where you need to integrate custom virtual machines or bare-metal servers into an existing GKE cluster as worker nodes, providing flexibility beyond standard GKE node pools.
 
-### `generate-worker-args.sh` (Run on your workstation/control plane)
+### `generate-node-args.sh` (Run on your workstation/control plane)
 
 This script is executed on a machine with `kubectl` configured to access your target Kubernetes cluster. Its primary functions are:
 *   **Cluster Information Discovery**: Automatically fetches the Kubernetes API server URL, cluster CA certificate, and (optionally) the cluster DNS IP from your current `kubectl` context.
 *   **Credential Generation**: Generates a unique private key and a Certificate Signing Request (CSR) for the new worker node.
 *   **Version Parameterization**: Allows specifying optional versions for `containerd` and CNI plugins, defaulting to commonly used "current" versions if not provided.
-*   **Output Generation**: Prints a `setup-worker.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
+*   **Output Generation**: Prints a `setup-node.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
 
 **Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs) and `openssl`.
 
-### `setup-worker.sh` (Run on the new worker node)
+### `setup-node.sh` (Run on the new worker node)
 
-This script is executed on the target Ubuntu worker node, using the pre-generated arguments provided by `generate-worker-args.sh`. It performs the following setup steps:
+This script is executed on the target Ubuntu worker node, using the pre-generated arguments provided by `generate-node-args.sh`. It performs the following setup steps:
 *   **System Preparation**: Updates package lists, installs essential utilities (curl, gpg, apt-transport-https, dialog), and disables swap (a Kubernetes requirement).
 *   **CNI Plugin Installation**: Downloads and installs a standard version of CNI plugins (Container Network Interface) to `/opt/cni/bin`, using the specified or default version.
 *   **Containerd Runtime Installation**: Downloads and installs a specific version of `containerd` from its GitHub releases, configures it to use the `systemd` cgroup driver, and enables/starts its service, using the specified or default version.

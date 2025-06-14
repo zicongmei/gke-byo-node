@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# generate-worker-args.sh
+# generate-node-args.sh
 #
 # Description: Generates the necessary credentials and a command to bootstrap a
 #              new worker node for a non-kubeadm Kubernetes cluster. It now
@@ -9,7 +9,7 @@
 #              creation and approval process, eliminating the need for manual
 #              CSR approval on the control plane.
 #
-# Usage: ./generate-worker-args.sh --node <new-worker-node-name> --version <kubernetes-version>
+# Usage: ./generate-node-args.sh --node <new-worker-node-name> --version <kubernetes-version>
 #
 # Requirements:
 #   - kubectl connected to the target cluster with permissions to create and
@@ -49,7 +49,7 @@ fi
 K8S_VERSION="${K8S_VERSION#v}"
 
 # Set default versions if not provided
-# These defaults correspond to the current versions hardcoded in setup-worker.sh
+# These defaults correspond to the current versions hardcoded in setup-node.sh
 readonly DEFAULT_CONTAINERD_VERSION="1.7.22"
 readonly DEFAULT_CNI_PLUGINS_VERSION="1.5.1" # The version part, without 'v'
 
@@ -227,11 +227,11 @@ echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] All arguments generated and client certificate approved."
 echo "------------------------------------------------------------------------"
 echo
-echo "1. Copy the 'setup-worker.sh' script to the new worker node."
+echo "1. Copy the 'setup-node.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-worker.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
+echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
 echo
 echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
