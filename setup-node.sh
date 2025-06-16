@@ -8,7 +8,8 @@
 #              the companion `generate-worker-args.sh` script. It now uses
 #              pre-approved client certificates for both the kubelet and
 #              kube-proxy, removing the need for manual CSR approval on the
-#              control plane after setup.
+#              control plane after setup. It also installs an admin kubeconfig
+#              for local `kubectl` use.
 #
 # Usage: See the --help flag.
 # ==============================================================================
@@ -23,6 +24,8 @@ NODE_PRIVATE_KEY_BASE64=""
 NODE_CLIENT_CERT_BASE64="" # New required argument
 KUBE_PROXY_PRIVATE_KEY_BASE64="" # New required argument
 KUBE_PROXY_CLIENT_CERT_BASE64="" # New required argument
+LOCAL_EDIT_PRIVATE_KEY_BASE64="" # Renamed from ADMIN_PRIVATE_KEY_BASE64
+LOCAL_EDIT_CLIENT_CERT_BASE64="" # Renamed from ADMIN_CLIENT_CERT_BASE64
 CLUSTER_DNS_IP="10.96.0.10"
 VERSION="" # New required argument for Kubernetes version
 CONTAINERD_VERSION="1.7.22" # Default value, can be overridden by argument
@@ -30,7 +33,7 @@ CNI_PLUGINS_VERSION="1.5.1" # Default value, can be overridden by argument (with
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --kube-proxy-private-key-base64 <proxy-key> --kube-proxy-client-cert-base64 <proxy-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>]"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --kube-proxy-private-key-base64 <proxy-key> --kube-proxy-client-cert-base64 <proxy-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -42,6 +45,8 @@ while [[ "$#" -gt 0 ]]; do
         --node-client-cert-base64) NODE_CLIENT_CERT_BASE64="$2"; shift ;;
         --kube-proxy-private-key-base64) KUBE_PROXY_PRIVATE_KEY_BASE64="$2"; shift ;; # New argument
         --kube-proxy-client-cert-base64) KUBE_PROXY_CLIENT_CERT_BASE64="$2"; shift ;; # New argument
+        --local-edit-private-key-base64) LOCAL_EDIT_PRIVATE_KEY_BASE64="$2"; shift ;; # New argument name
+        --local-edit-client-cert-base64) LOCAL_EDIT_CLIENT_CERT_BASE64="$2"; shift ;; # New argument name
         --cluster-dns-ip) CLUSTER_DNS_IP="$2"; shift ;;
         --version) VERSION="$2"; shift ;; # Added version argument
         --containerd-version) CONTAINERD_VERSION="$2"; shift ;; # New argument
@@ -59,6 +64,8 @@ if [ -z "$NODE_NAME" ] || \
    [ -z "$NODE_CLIENT_CERT_BASE64" ] || \
    [ -z "$KUBE_PROXY_PRIVATE_KEY_BASE64" ] || \
    [ -z "$KUBE_PROXY_CLIENT_CERT_BASE64" ] || \
+   [ -z "$LOCAL_EDIT_PRIVATE_KEY_BASE64" ] || \
+   [ -z "$LOCAL_EDIT_CLIENT_CERT_BASE64" ] || \
    [ -z "$VERSION" ]; then # Added check for new argument
     echo "Error: Missing required arguments."
     print_usage
@@ -92,9 +99,26 @@ esac
 echo "  [✓] Detected architecture: ${ARCH}"
 
 # --- Step 1: System Preparation ---
-echo "--> [1/8] Preparing system: disabling swap..."
+echo "--> [1/8] Preparing system: disabling swap, loading kernel modules, and configuring sysctl parameters..."
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+# Load kernel modules required for container networking and CNI (e.g., overlayfs for containerd, br_netfilter for kube-proxy/CNI)
+echo "  --> Loading overlay and br_netfilter kernel modules..."
+modprobe overlay || { echo "Warning: Failed to load overlay module."; }
+modprobe br_netfilter || { echo "Warning: Failed to load br_netfilter module."; }
+echo "  [✓] Kernel modules loaded."
+
+# Configure sysctl parameters for Kubernetes networking
+echo "  --> Configuring sysctl parameters for Kubernetes..."
+mkdir -p /etc/sysctl.d/
+cat <<EOF | tee /etc/sysctl.d/kubernetes.conf > /dev/null
+net.bridge.bridge-nf-call-iptables=1
+net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-ip6tables=1
+EOF
+sysctl --system > /dev/null # Apply settings from all files in /etc/sysctl.d/
+echo "  [✓] Sysctl parameters configured."
 echo "  [✓] System prepared."
 
 # --- Step 2: Install CNI Plugins ---
@@ -202,6 +226,13 @@ echo "${KUBE_PROXY_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kube-proxy/kube-
 chmod 600 "/var/lib/kube-proxy/kube-proxy.key"
 chmod 644 "/var/lib/kube-proxy/kube-proxy.crt" # Client cert can be readable by kube-proxy
 
+# Decode and place local-edit credentials
+echo "  --> Placing kubernetes-local-edit credentials..."
+echo "${LOCAL_EDIT_PRIVATE_KEY_BASE64}" | base64 -d > "/etc/kubernetes/local-edit.key"
+echo "${LOCAL_EDIT_CLIENT_CERT_BASE64}" | base64 -d > "/etc/kubernetes/local-edit.crt"
+chmod 600 "/etc/kubernetes/local-edit.key"
+chmod 644 "/etc/kubernetes/local-edit.crt"
+
 
 # Create kubelet.kubeconfig
 # The kubeconfig for kubelet will now contain the pre-signed client certificate and key.
@@ -226,6 +257,15 @@ kubectl config set-credentials kube-proxy --client-certificate="/var/lib/kube-pr
 kubectl config set-context default --cluster=k8s-manual --user=kube-proxy --kubeconfig=/var/lib/kube-proxy/kubeconfig >/dev/null
 kubectl config use-context default --kubeconfig=/var/lib/kube-proxy/kubeconfig >/dev/null
 
+# Create /etc/kubernetes/local-edit.conf for general kubectl usage on the node
+echo "  --> Creating /etc/kubernetes/local-edit.conf for kubectl..."
+kubectl config set-cluster k8s-manual --server="${API_SERVER_URL}" --certificate-authority=/etc/kubernetes/pki/ca.crt --kubeconfig=/etc/kubernetes/local-edit.conf --embed-certs=true >/dev/null
+kubectl config set-credentials kubernetes-local-edit --client-certificate="/etc/kubernetes/local-edit.crt" --client-key="/etc/kubernetes/local-edit.key" --kubeconfig=/etc/kubernetes/local-edit.conf --embed-certs=true >/dev/null
+kubectl config set-context default --cluster=k8s-manual --user=kubernetes-local-edit --kubeconfig=/etc/kubernetes/local-edit.conf >/dev/null
+kubectl config use-context default --kubeconfig=/etc/kubernetes/local-edit.conf >/dev/null
+echo "  [✓] /etc/kubernetes/local-edit.conf created."
+
+
 echo "  [✓] Credentials and kubeconfigs created."
 
 # --- Step 6: Configure Kubelet Service ---
@@ -237,36 +277,9 @@ echo "  --> Removing existing kubelet service drop-in configurations..."
 rm -rf /etc/systemd/system/kubelet.service.d/*
 echo "  [✓] Cleaned up old kubelet service configurations."
 
-echo "  --> Creating CNI network configuration..."
-mkdir -p /etc/cni/net.d
-cat > /etc/cni/net.d/10-containerd-net.conflist <<EOF
-{
-  "name": "k8s-pod-network",
-  "cniVersion": "0.3.1",
-  "plugins": [
-    {
-      "type": "ptp",
-      "mtu": 1460,
-      "ipam": {
-        "type": "host-local",
-        "subnet": "169.254.32.0/20",
-        "routes": [
-          {
-            "dst": "0.0.0.0/0"
-          }
-        ]
-      }
-    },
-    {
-      "type": "portmap",
-      "capabilities": {
-        "portMappings": true
-      }
-    }
-  ]
-}
-EOF
-echo "  [✓] CNI network configuration created."
+# CNI network configuration is now managed by the chosen CNI provider (e.g., Cilium)
+# and should not be manually created here.
+# The `/etc/cni/net.d` directory will be populated by the cluster's CNI deployment.
 
 # Kubelet config file
 cat > /var/lib/kubelet/config.yaml <<EOF
@@ -372,4 +385,8 @@ echo "  [✓] Kubelet and kube-proxy services started."
 echo
 echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] Worker node setup is complete."
+echo "  Please install your CNI (e.g., Cilium) on the cluster from your control plane."
+echo "  To use kubectl on this node with 'edit' permissions, run: export KUBECONFIG=/etc/kubernetes/local-edit.conf"
+echo "  Remember to create the ClusterRoleBinding on the control plane if not already done:"
+echo "  kubectl create clusterrolebinding kubernetes-local-edit-binding --clusterrole=edit --group=kubernetes:edit-users"
 echo "------------------------------------------------------------------------"

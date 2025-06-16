@@ -8,7 +8,8 @@
 #              automates the Kubernetes Certificate Signing Request (CSR)
 #              creation and approval process, eliminating the need for manual
 #              CSR approval on the control plane. This script now also
-#              generates and approves certificates for kube-proxy.
+#              generates and approves certificates for kube-proxy and an admin
+#              kubeconfig for the node's local kubectl.
 #
 # Usage: ./generate-node-args.sh --node <new-worker-node-name> --version <kubernetes-version>
 #
@@ -323,6 +324,80 @@ if [ -z "${KUBE_PROXY_CLIENT_CERT_BASE64}" ]; then
     exit 1
 fi
 
+# --- Generate kubernetes-local-edit private key and CSR ---
+echo "  --> Generating kubernetes-local-edit private key and CSR..."
+openssl genrsa -out "${TMP_DIR}/kubernetes-local-edit.key" 2048 &>/dev/null
+
+# Create an OpenSSL config file for the kubernetes-local-edit CSR
+cat > "${TMP_DIR}/openssl-kubernetes-local-edit.cnf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+[req_distinguished_name]
+# CN = kubernetes-local-edit
+# O = kubernetes:edit-users
+CN = cluster-admin
+O = cluster-admin
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = clientAuth
+EOF
+
+# Generate the Certificate Signing Request (CSR) for kubernetes-local-edit
+openssl req -new -key "${TMP_DIR}/kubernetes-local-edit.key" -out "${TMP_DIR}/kubernetes-local-edit.csr" -config "${TMP_DIR}/openssl-kubernetes-local-edit.cnf" &>/dev/null
+
+readonly LOCAL_EDIT_PRIVATE_KEY_BASE64=$(base64 -w 0 "${TMP_DIR}/kubernetes-local-edit.key")
+readonly LOCAL_EDIT_CSR_BASE64=$(base64 -w 0 "${TMP_DIR}/kubernetes-local-edit.csr")
+echo "  [✓] Generated kubernetes-local-edit private key and CSR."
+
+# --- Kubernetes CSR creation and approval for kubernetes-local-edit ---
+echo "--> Creating and approving CSR for kubernetes-local-edit-${NODE_NAME} in Kubernetes..."
+
+# Clean up any existing CSR for this user name to avoid conflicts on re-run
+kubectl delete csr "kubernetes-local-edit-${NODE_NAME}" --ignore-not-found &>/dev/null
+
+# Create CSR object in Kubernetes for kubernetes-local-edit
+LOCAL_EDIT_CSR_YAML=$(cat <<EOF
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: kubernetes-local-edit-${NODE_NAME}
+spec:
+  groups:
+  - kubernetes:edit-users
+  - system:authenticated
+  request: ${LOCAL_EDIT_CSR_BASE64}
+  signerName: kubernetes.io/kube-apiserver-client
+  usages:
+  - client auth
+EOF
+)
+
+echo "${LOCAL_EDIT_CSR_YAML}" | kubectl apply -f - >/dev/null
+
+# Approve the kubernetes-local-edit CSR
+kubectl certificate approve "kubernetes-local-edit-${NODE_NAME}" >/dev/null
+echo "  [✓] Kubernetes-local-edit CSR created and approved in Kubernetes."
+
+# Wait for certificate to be signed and fetch it
+echo "  --> Waiting for signed kubernetes-local-edit client certificate (up to 10 seconds)..."
+LOCAL_EDIT_CLIENT_CERT_BASE64=""
+for i in $(seq 1 10); do
+    LOCAL_EDIT_CLIENT_CERT_BASE64=$(kubectl get csr "kubernetes-local-edit-${NODE_NAME}" -o jsonpath='{.status.certificate}' 2>/dev/null)
+    if [ -n "${LOCAL_EDIT_CLIENT_CERT_BASE64}" ]; then
+        echo "  [✓] Signed kubernetes-local-edit client certificate fetched."
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "${LOCAL_EDIT_CLIENT_CERT_BASE64}" ]; then
+    echo "Error: Failed to fetch signed kubernetes-local-edit client certificate for kubernetes-local-edit-${NODE_NAME} after multiple attempts."
+    echo "Please check 'kubectl get csr kubernetes-local-edit-${NODE_NAME}' and 'kubectl describe csr kubernetes-local-edit-${NODE_NAME}' on the control plane."
+    exit 1
+fi
+
 # --- Final Output ---
 echo
 echo "------------------------------------------------------------------------"
@@ -333,9 +408,14 @@ echo "1. Copy the 'setup-node.sh' script to the new worker node."
 echo
 echo "2. Run the following command on the new worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --kube-proxy-private-key-base64 \"${KUBE_PROXY_PRIVATE_KEY_BASE64}\" --kube-proxy-client-cert-base64 \"${KUBE_PROXY_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
+echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --kube-proxy-private-key-base64 \"${KUBE_PROXY_PRIVATE_KEY_BASE64}\" --kube-proxy-client-cert-base64 \"${KUBE_PROXY_CLIENT_CERT_BASE64}\" --local-edit-private-key-base64 \"${LOCAL_EDIT_PRIVATE_KEY_BASE64}\" --local-edit-client-cert-base64 \"${LOCAL_EDIT_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
 echo
 echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
+echo "4. On the node, to use kubectl with edit permissions, you can run:"
+echo "   export KUBECONFIG=/etc/kubernetes/local-edit.conf"
+echo "   kubectl get nodes"
+echo "5. To grant 'edit' ClusterRole permissions to this user, run the following on your control plane:"
+echo "   kubectl create clusterrolebinding kubernetes-local-edit-binding --clusterrole=edit --group=kubernetes:edit-users"
 echo
 echo "------------------------------------------------------------------------"
