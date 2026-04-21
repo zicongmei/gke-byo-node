@@ -314,10 +314,12 @@ if [ "$PROVIDER" = "aws" ]; then
     KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/region=${AWS_REGION},topology.kubernetes.io/zone=${AWS_ZONE}"
 fi
 
-EXEC_START="/usr/bin/kubelet --config=/var/lib/kubelet/config.yaml --kubeconfig=/var/lib/kubelet/kubeconfig --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --register-node=true --node-labels=${KUBELET_LABELS} --v=2"
+EXEC_START="/usr/bin/kubelet --config=/var/lib/kubelet/config.yaml --kubeconfig=/var/lib/kubelet/kubeconfig --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --register-node=true --hostname-override=${NODE_NAME} --node-labels=${KUBELET_LABELS} --v=2"
 
 if [ "$PROVIDER" = "aws" ]; then
-    EXEC_START="${EXEC_START} --cloud-provider=external"
+    # For now, we don't use --cloud-provider=external because we don't have a CCM for AWS in GKE.
+    # EXEC_START="${EXEC_START} --cloud-provider=external"
+    :
 fi
 
 cat > /etc/systemd/system/kubelet.service <<EOF
