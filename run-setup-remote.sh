@@ -2,8 +2,8 @@
 set -e
 
 NODE_NAME="zicong-aws-vm-0"
-K8S_VERSION="1.35.3"
-REMOTE_IP="100.23.209.171"
+K8S_VERSION="1.35.1"
+REMOTE_IP="34.220.101.157"
 SSH_KEY="$HOME/.ssh/id_rsa"
 
 echo "--> Generating join command locally..."

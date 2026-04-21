@@ -11,3 +11,11 @@ output "scp_commands" {
     "scp -i ~/.ssh/id_rsa setup-node.sh ubuntu@${instance.public_ip}:~/setup-node.sh"
   ]
 }
+
+output "gcp_service_account_email" {
+  value = google_service_account.image_puller.email
+}
+
+output "workload_identity_provider_id" {
+  value = google_iam_workload_identity_pool_provider.aws.name
+}
