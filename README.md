@@ -9,10 +9,11 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
 ### Prerequisites:
 
 *   **Workstation/Control Plane**:
-    *   `kubectl` installed and configured to connect to your Kubernetes cluster.
+    *   `kubectl` installed and configured to connect to your GKE cluster.
     *   `openssl` installed.
 *   **New Worker Node (Target)**:
     *   An Linux Linux machine (e.g., Ubuntu, Debian, Centos) with `sudo` access.
+        - The `terraform` directory contains the script to create such instances.
     *   `curl` installed (usually pre-installed).
     *   Network connectivity to your Kubernetes API server.
 

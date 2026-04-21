@@ -1,0 +1,5 @@
+name_prefix   = "my-gcp-cluster"
+number_of_vms = 1
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+zone          = "us-central1-a"
