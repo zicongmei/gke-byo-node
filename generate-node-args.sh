@@ -28,6 +28,7 @@ NODE_NAME=""
 K8S_VERSION=""
 CONTAINERD_VERSION_ARG="" # New optional argument for containerd version
 CNI_PLUGINS_VERSION_ARG="" # New optional argument for CNI plugins version (interpreting "csi" as cni plugins)
+PROVIDER="gcp" # Default provider
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
@@ -35,15 +36,21 @@ while [[ "$#" -gt 0 ]]; do
         --node) NODE_NAME="$2"; shift ;;
         --version) K8S_VERSION="$2"; shift ;;
         --containerd-version) CONTAINERD_VERSION_ARG="$2"; shift ;;
-        --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;; # Renamed from csi-version for clarity
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"; exit 1 ;;
+        --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;;
+        --provider) PROVIDER="$2"; shift ;;
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"; exit 1 ;;
     esac
     shift
 done
 
+if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" ]]; then
+    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp' or 'aws'."
+    exit 1
+fi
+
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]"
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"
     exit 1
 fi
 
@@ -82,7 +89,7 @@ fi
 # --- Configuration ---
 # Arguments are already assigned to NODE_NAME and K8S_VERSION from parsing loop
 
-echo "--- Preparing arguments for worker node: ${NODE_NAME} (K8s Version: ${K8S_VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
+echo "--- Preparing arguments for worker node: ${NODE_NAME} (Provider: ${PROVIDER}, K8s Version: ${K8S_VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
 # --- Cluster Information Discovery ---
 echo "--> Discovering cluster information..."
@@ -303,11 +310,11 @@ echo "------------------------------------------------------------------------"
 echo "  [SUCCESS] All arguments generated and client certificates approved."
 echo "------------------------------------------------------------------------"
 echo
-echo "1. Copy the 'setup-node.sh' script to the new worker node."
+echo "1. Copy the 'setup-node.sh' script to the new ${PROVIDER} worker node."
 echo
-echo "2. Run the following command on the new worker node to join it to the cluster:"
+echo "2. Run the following command on the new ${PROVIDER} worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --local-edit-private-key-base64 \"${LOCAL_EDIT_PRIVATE_KEY_BASE64}\" --local-edit-client-cert-base64 \"${LOCAL_EDIT_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\""
+echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --local-edit-private-key-base64 \"${LOCAL_EDIT_PRIVATE_KEY_BASE64}\" --local-edit-client-cert-base64 \"${LOCAL_EDIT_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\" --provider \"${PROVIDER}\""
 echo
 echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"

@@ -194,3 +194,5 @@ cython_debug/
 .cursorindexingignore
 
 hack/
+.terraform*
+terraform.tfstate*

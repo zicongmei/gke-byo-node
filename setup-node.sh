@@ -27,10 +27,11 @@ CLUSTER_DNS_IP="10.96.0.10"
 VERSION="" # New required argument for Kubernetes version
 CONTAINERD_VERSION="1.7.22" # Default value, can be overridden by argument
 CNI_PLUGINS_VERSION="1.5.1" # Default value, can be overridden by argument (without 'v')
+PROVIDER="gcp" # Default provider
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>]"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -46,11 +47,17 @@ while [[ "$#" -gt 0 ]]; do
         --version) VERSION="$2"; shift ;;
         --containerd-version) CONTAINERD_VERSION="$2"; shift ;;
         --cni-version) CNI_PLUGINS_VERSION="$2"; shift ;;
+        --provider) PROVIDER="$2"; shift ;;
         --help) print_usage; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac
     shift
 done
+
+if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" ]]; then
+    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp' or 'aws'."
+    exit 1
+fi
 
 if [ -z "$NODE_NAME" ] || \
    [ -z "$API_SERVER_URL" ] || \
@@ -69,6 +76,28 @@ fi
 VERSION="${VERSION#v}"
 CONTAINERD_VERSION="${CONTAINERD_VERSION#v}"
 CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION#v}"
+
+AWS_REGION=""
+AWS_ZONE=""
+if [ "$PROVIDER" = "aws" ]; then
+    echo "--> Detecting AWS region and availability zone..."
+    # IMDSv2 requires a token
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+    if [ -z "$TOKEN" ]; then
+        echo "    [i] Failed to get IMDSv2 token. Trying IMDSv1..."
+        AWS_ZONE=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    else
+        AWS_ZONE=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    fi
+    
+    if [ -z "$AWS_ZONE" ]; then
+        echo "Error: Failed to detect AWS availability zone. Please ensure this node is running in AWS."
+        exit 1
+    fi
+    # Region is zone minus the last letter
+    AWS_REGION="${AWS_ZONE%?}"
+    echo "  [✓] Detected AWS Region: ${AWS_REGION}, Zone: ${AWS_ZONE}"
+fi
 
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
 
@@ -203,16 +232,16 @@ echo "--> [5/7] Placing credentials and kubeconfig files..."
 mkdir -p /var/lib/kubelet /etc/kubernetes/pki
 
 # Decode and place kubelet credentials
-echo "${CLUSTER_CA_CERT_BASE64}" | base64 -d > /etc/kubernetes/pki/ca.crt
-echo "${NODE_PRIVATE_KEY_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.key"
-echo "${NODE_CLIENT_CERT_BASE64}" | base64 -d > "/var/lib/kubelet/${NODE_NAME}.crt"
+echo "${CLUSTER_CA_CERT_BASE64}" | base64 -di > /etc/kubernetes/pki/ca.crt
+echo "${NODE_PRIVATE_KEY_BASE64}" | base64 -di > "/var/lib/kubelet/${NODE_NAME}.key"
+echo "${NODE_CLIENT_CERT_BASE64}" | base64 -di > "/var/lib/kubelet/${NODE_NAME}.crt"
 chmod 600 "/var/lib/kubelet/${NODE_NAME}.key"
 chmod 644 "/var/lib/kubelet/${NODE_NAME}.crt" # Client cert can be readable by kubelet
 
 # Decode and place local-edit credentials
 echo "  --> Placing kubernetes-local-edit credentials..."
-echo "${LOCAL_EDIT_PRIVATE_KEY_BASE64}" | base64 -d > "/etc/kubernetes/local-edit.key"
-echo "${LOCAL_EDIT_CLIENT_CERT_BASE64}" | base64 -d > "/etc/kubernetes/local-edit.crt"
+echo "${LOCAL_EDIT_PRIVATE_KEY_BASE64}" | base64 -di > "/etc/kubernetes/local-edit.key"
+echo "${LOCAL_EDIT_CLIENT_CERT_BASE64}" | base64 -di > "/etc/kubernetes/local-edit.crt"
 chmod 600 "/etc/kubernetes/local-edit.key"
 chmod 644 "/etc/kubernetes/local-edit.crt"
 
@@ -280,6 +309,17 @@ tlsPrivateKeyFile: "/var/lib/kubelet/${NODE_NAME}.key"
 EOF
 
 # Kubelet systemd service file
+KUBELET_LABELS="node.kubernetes.io/kube-proxy-ds-ready=true"
+if [ "$PROVIDER" = "aws" ]; then
+    KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/region=${AWS_REGION},topology.kubernetes.io/zone=${AWS_ZONE}"
+fi
+
+EXEC_START="/usr/bin/kubelet --config=/var/lib/kubelet/config.yaml --kubeconfig=/var/lib/kubelet/kubeconfig --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --register-node=true --node-labels=${KUBELET_LABELS} --v=2"
+
+if [ "$PROVIDER" = "aws" ]; then
+    EXEC_START="${EXEC_START} --cloud-provider=external"
+fi
+
 cat > /etc/systemd/system/kubelet.service <<EOF
 [Unit]
 Description=Kubernetes Kubelet
@@ -288,13 +328,7 @@ After=containerd.service
 Requires=containerd.service
 
 [Service]
-ExecStart=/usr/bin/kubelet \
-  --config=/var/lib/kubelet/config.yaml \
-  --kubeconfig=/var/lib/kubelet/kubeconfig \
-  --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock \
-  --register-node=true \
-  --node-labels=node.kubernetes.io/kube-proxy-ds-ready=true \
-  --v=2
+ExecStart=${EXEC_START}
 Restart=on-failure
 RestartSec=5
 

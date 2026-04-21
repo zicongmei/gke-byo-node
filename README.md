@@ -24,12 +24,14 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
 2.  **Generate Worker Node Arguments on your workstation**:
     Navigate to the directory containing `generate-node-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
     ```bash
-    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>]
+    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <provider>]
     ```
     **Example**:
     ```bash
     ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
-    # Or, using current default versions for containerd/cni:
+    # For AWS VM (user provisions VM first):
+    ./generate-node-args.sh --node aws-worker-01 --version 1.32.0 --provider aws
+    # Or, defaulting to gcp:
     ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0
     ```
     This script will:
@@ -79,6 +81,7 @@ This script is executed on a machine with `kubectl` configured to access your ta
 *   **Cluster Information Discovery**: Automatically fetches the Kubernetes API server URL, cluster CA certificate, and (optionally) the cluster DNS IP from your current `kubectl` context.
 *   **Credential Generation**: Generates a unique private key and a Certificate Signing Request (CSR) for the new worker node.
 *   **Version Parameterization**: Allows specifying optional versions for `containerd` and CNI plugins, defaulting to commonly used "current" versions if not provided.
+*   **Provider Selection**: Supports `--provider` flag (default `gcp`). Specify `aws` if targeting an AWS VM. This updates output messages to be provider-aware.
 *   **Output Generation**: Prints a `setup-node.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
 
 **Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs) and `openssl`.
