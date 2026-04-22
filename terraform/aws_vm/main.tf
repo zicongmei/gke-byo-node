@@ -4,19 +4,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 5.0"
-    }
   }
 }
 
 provider "aws" {
   region = var.region
-}
-
-provider "google" {
-  project = var.gcp_project_id
 }
 
 data "aws_caller_identity" "current" {}
@@ -42,48 +34,6 @@ resource "aws_iam_role" "vm_role" {
 resource "aws_iam_instance_profile" "vm_profile" {
   name = "${var.name_prefix}-vm-profile"
   role = aws_iam_role.vm_role.name
-}
-
-# --- GCP Workload Identity Federation ---
-resource "google_iam_workload_identity_pool" "pool" {
-  workload_identity_pool_id = "${var.name_prefix}-pool"
-  display_name              = "AWS Pool for ${var.name_prefix}"
-}
-
-resource "google_iam_workload_identity_pool_provider" "aws" {
-  workload_identity_pool_id          = google_iam_workload_identity_pool.pool.workload_identity_pool_id
-  workload_identity_pool_provider_id = "${var.name_prefix}-aws-provider"
-  display_name                       = "AWS Provider"
-  
-  attribute_mapping = {
-    "google.subject"        = "assertion.arn"
-    "attribute.aws_role"    = "assertion.arn.contains('role/') ? assertion.arn.extract('role/{role_name}/') : assertion.arn"
-    "attribute.aws_account" = "assertion.account"
-  }
-
-  aws {
-    account_id = data.aws_caller_identity.current.account_id
-  }
-}
-
-# --- GCP Service Account for Image Pulling ---
-resource "google_service_account" "image_puller" {
-  account_id   = "${var.name_prefix}-puller"
-  display_name = "GKE Image Puller for AWS Nodes"
-}
-
-# Grant puller permissions (GCR/Artifact Registry)
-resource "google_project_iam_member" "registry_viewer" {
-  project = var.gcp_project_id
-  role    = "roles/artifactregistry.reader"
-  member  = "serviceAccount:${google_service_account.image_puller.email}"
-}
-
-# Allow AWS Role to impersonate the GCP Service Account
-resource "google_service_account_iam_member" "wif_user" {
-  service_account_id = google_service_account.image_puller.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.pool.name}/attribute.aws_role/${aws_iam_role.vm_role.name}"
 }
 
 resource "aws_vpc" "main" {

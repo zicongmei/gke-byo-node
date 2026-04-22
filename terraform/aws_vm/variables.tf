@@ -14,8 +14,3 @@ variable "region" {
   type        = string
   default     = "us-west-2"
 }
-
-variable "gcp_project_id" {
-  description = "GCP Project ID for Workload Identity Federation"
-  type        = string
-}

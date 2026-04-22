@@ -51,6 +51,7 @@ fi
 
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
     echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"
+    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws"
     exit 1
 fi
 
