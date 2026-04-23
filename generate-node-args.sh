@@ -40,19 +40,19 @@ while [[ "$#" -gt 0 ]]; do
         --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;;
         --provider) PROVIDER="$2"; shift ;;
         --labels) NODE_LABELS="$2"; shift ;;
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"; exit 1 ;;
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"; exit 1 ;;
     esac
     shift
 done
 
-if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" ]]; then
-    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp' or 'aws'."
+if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" && "$PROVIDER" != "azure" ]]; then
+    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp', 'aws', or 'azure'."
     exit 1
 fi
 
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"
     echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels \"env=prod,team=myteam\""
     exit 1
 fi

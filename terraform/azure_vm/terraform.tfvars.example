@@ -1,0 +1,2 @@
+name_prefix = "gke-byo"
+location    = "West US 2"

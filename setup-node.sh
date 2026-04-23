@@ -32,7 +32,7 @@ NODE_LABELS="" # Optional additional labels
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -56,8 +56,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" ]]; then
-    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp' or 'aws'."
+if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" && "$PROVIDER" != "azure" ]]; then
+    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp', 'aws', or 'azure'."
     exit 1
 fi
 
@@ -81,6 +81,9 @@ CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION#v}"
 
 AWS_REGION=""
 AWS_ZONE=""
+AZURE_LOCATION=""
+AZURE_ZONE=""
+
 if [ "$PROVIDER" = "aws" ]; then
     echo "--> Detecting AWS region and availability zone..."
     # IMDSv2 requires a token
@@ -99,6 +102,22 @@ if [ "$PROVIDER" = "aws" ]; then
     # Region is zone minus the last letter
     AWS_REGION="${AWS_ZONE%?}"
     echo "  [✓] Detected AWS Region: ${AWS_REGION}, Zone: ${AWS_ZONE}"
+elif [ "$PROVIDER" = "azure" ]; then
+    echo "--> Detecting Azure location and availability zone..."
+    METADATA=$(curl -s -H Metadata:true --noproxy "*" "http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01") || true
+    if [ -z "$METADATA" ]; then
+        echo "Error: Failed to fetch Azure metadata. Please ensure this node is running in Azure."
+        exit 1
+    fi
+    AZURE_LOCATION=$(echo "$METADATA" | grep -oP '"location":"\K[^"]+')
+    AZURE_ZONE=$(echo "$METADATA" | grep -oP '"zone":"\K[^"]+')
+    
+    if [ -z "$AZURE_LOCATION" ]; then
+        echo "Error: Failed to detect Azure location."
+        exit 1
+    fi
+    # If zone is empty (e.g. not using AZs), default to none
+    echo "  [✓] Detected Azure Location: ${AZURE_LOCATION}, Zone: ${AZURE_ZONE:-none}"
 fi
 
 echo "--- Starting Kubernetes Worker Node Setup for ${NODE_NAME} (K8s Version: ${VERSION}, Containerd: ${CONTAINERD_VERSION}, CNI: ${CNI_PLUGINS_VERSION}) ---"
@@ -314,6 +333,13 @@ EOF
 KUBELET_LABELS="node.kubernetes.io/kube-proxy-ds-ready=true"
 if [ "$PROVIDER" = "aws" ]; then
     KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/region=${AWS_REGION},topology.kubernetes.io/zone=${AWS_ZONE}"
+elif [ "$PROVIDER" = "azure" ]; then
+    KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/region=${AZURE_LOCATION}"
+    if [ -n "$AZURE_ZONE" ] && [ "$AZURE_ZONE" != "none" ]; then
+        # Azure zone is usually like "1", but Kubernetes expects a full string if needed.
+        # Often GKE uses topology.kubernetes.io/zone=${AZURE_LOCATION}-${AZURE_ZONE}
+        KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/zone=${AZURE_LOCATION}-${AZURE_ZONE}"
+    fi
 fi
 if [ -n "$NODE_LABELS" ]; then
     KUBELET_LABELS="${KUBELET_LABELS},${NODE_LABELS}"

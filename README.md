@@ -32,6 +32,8 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
     # For AWS VM (user provisions VM first):
     ./generate-node-args.sh --node aws-worker-01 --version 1.32.0 --provider aws
+    # For Azure VM (user provisions VM first):
+    ./generate-node-args.sh --node azure-worker-01 --version 1.32.0 --provider azure
     # Or, defaulting to gcp:
     ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0
     ```
