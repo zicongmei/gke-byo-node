@@ -28,10 +28,11 @@ VERSION="" # New required argument for Kubernetes version
 CONTAINERD_VERSION="1.7.22" # Default value, can be overridden by argument
 CNI_PLUGINS_VERSION="1.5.1" # Default value, can be overridden by argument (without 'v')
 PROVIDER="gcp" # Default provider
+NODE_LABELS="" # Optional additional labels
 
 # --- Argument Parsing ---
 print_usage() {
-    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"
+    echo "Usage: $0 --name <node-name> --api-url <k8s-api-url> --ca-cert-base64 <ca-cert> --node-private-key-base64 <node-key> --node-client-cert-base64 <node-cert> --local-edit-private-key-base64 <local-edit-key> --local-edit-client-cert-base64 <local-edit-cert> --cluster-dns-ip <dns-ip> --version <k8s-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -48,6 +49,7 @@ while [[ "$#" -gt 0 ]]; do
         --containerd-version) CONTAINERD_VERSION="$2"; shift ;;
         --cni-version) CNI_PLUGINS_VERSION="$2"; shift ;;
         --provider) PROVIDER="$2"; shift ;;
+        --labels) NODE_LABELS="$2"; shift ;;
         --help) print_usage; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac
@@ -312,6 +314,9 @@ EOF
 KUBELET_LABELS="node.kubernetes.io/kube-proxy-ds-ready=true"
 if [ "$PROVIDER" = "aws" ]; then
     KUBELET_LABELS="${KUBELET_LABELS},topology.kubernetes.io/region=${AWS_REGION},topology.kubernetes.io/zone=${AWS_ZONE}"
+fi
+if [ -n "$NODE_LABELS" ]; then
+    KUBELET_LABELS="${KUBELET_LABELS},${NODE_LABELS}"
 fi
 
 EXEC_START="/usr/bin/kubelet --config=/var/lib/kubelet/config.yaml --kubeconfig=/var/lib/kubelet/kubeconfig --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --register-node=true --hostname-override=${NODE_NAME} --node-labels=${KUBELET_LABELS} --v=2"

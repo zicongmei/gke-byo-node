@@ -29,6 +29,7 @@ K8S_VERSION=""
 CONTAINERD_VERSION_ARG="" # New optional argument for containerd version
 CNI_PLUGINS_VERSION_ARG="" # New optional argument for CNI plugins version (interpreting "csi" as cni plugins)
 PROVIDER="gcp" # Default provider
+NODE_LABELS="" # Optional labels
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
@@ -38,8 +39,9 @@ while [[ "$#" -gt 0 ]]; do
         --containerd-version) CONTAINERD_VERSION_ARG="$2"; shift ;;
         --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;;
         --provider) PROVIDER="$2"; shift ;;
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"; exit 1 ;;
+        --labels) NODE_LABELS="$2"; shift ;;
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"; exit 1 ;;
     esac
     shift
 done
@@ -50,8 +52,8 @@ if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" ]]; then
 fi
 
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>]"
-    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws"
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws>] [--labels <labels>]"
+    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels \"env=prod,team=myteam\""
     exit 1
 fi
 
@@ -315,7 +317,14 @@ echo "1. Copy the 'setup-node.sh' script to the new ${PROVIDER} worker node."
 echo
 echo "2. Run the following command on the new ${PROVIDER} worker node to join it to the cluster:"
 echo
-echo "sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --local-edit-private-key-base64 \"${LOCAL_EDIT_PRIVATE_KEY_BASE64}\" --local-edit-client-cert-base64 \"${LOCAL_EDIT_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\" --provider \"${PROVIDER}\""
+
+SETUP_COMMAND="sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SERVER_URL}\" --ca-cert-base64 \"${CLUSTER_CA_CERT_BASE64}\" --node-private-key-base64 \"${NODE_PRIVATE_KEY_BASE64}\" --node-client-cert-base64 \"${NODE_CLIENT_CERT_BASE64}\" --local-edit-private-key-base64 \"${LOCAL_EDIT_PRIVATE_KEY_BASE64}\" --local-edit-client-cert-base64 \"${LOCAL_EDIT_CLIENT_CERT_BASE64}\" --cluster-dns-ip \"${CLUSTER_DNS_IP}\" --version \"${K8S_VERSION}\" --containerd-version \"${CONTAINERD_VERSION}\" --cni-version \"${CNI_PLUGINS_VERSION}\" --provider \"${PROVIDER}\""
+
+if [ -n "$NODE_LABELS" ]; then
+    SETUP_COMMAND="${SETUP_COMMAND} --labels \"${NODE_LABELS}\""
+fi
+
+echo "${SETUP_COMMAND}"
 echo
 echo "3. Verify the node has joined:"
 echo "   kubectl get nodes"
