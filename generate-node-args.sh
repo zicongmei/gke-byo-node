@@ -203,7 +203,8 @@ echo "  [✓] Generated kubelet private key and CSR."
 # --- Kubernetes CSR creation and approval for kubelet ---
 echo "--> Creating and approving CSR for kubelet ${NODE_NAME} in Kubernetes..."
 
-# Clean up any existing CSR for this node name to avoid conflicts on re-run
+# Clean up any existing CSR or node object for this node name to avoid conflicts on re-run
+kubectl delete node "${NODE_NAME}" --ignore-not-found &>/dev/null
 kubectl delete csr "${NODE_NAME}" --ignore-not-found &>/dev/null
 
 # Create CSR object in Kubernetes
