@@ -39,19 +39,33 @@ print_usage() {
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --name) NODE_NAME="$2"; shift ;;
+        --name=*) NODE_NAME="${1#*=}" ;;
         --api-url) API_SERVER_URL="$2"; shift ;;
+        --api-url=*) API_SERVER_URL="${1#*=}" ;;
         --ca-cert-base64) CLUSTER_CA_CERT_BASE64="$2"; shift ;;
+        --ca-cert-base64=*) CLUSTER_CA_CERT_BASE64="${1#*=}" ;;
         --node-private-key-base64) NODE_PRIVATE_KEY_BASE64="$2"; shift ;;
+        --node-private-key-base64=*) NODE_PRIVATE_KEY_BASE64="${1#*=}" ;;
         --node-client-cert-base64) NODE_CLIENT_CERT_BASE64="$2"; shift ;;
+        --node-client-cert-base64=*) NODE_CLIENT_CERT_BASE64="${1#*=}" ;;
         --local-edit-private-key-base64) LOCAL_EDIT_PRIVATE_KEY_BASE64="$2"; shift ;;
+        --local-edit-private-key-base64=*) LOCAL_EDIT_PRIVATE_KEY_BASE64="${1#*=}" ;;
         --local-edit-client-cert-base64) LOCAL_EDIT_CLIENT_CERT_BASE64="$2"; shift ;;
+        --local-edit-client-cert-base64=*) LOCAL_EDIT_CLIENT_CERT_BASE64="${1#*=}" ;;
         --cluster-dns-ip) CLUSTER_DNS_IP="$2"; shift ;;
+        --cluster-dns-ip=*) CLUSTER_DNS_IP="${1#*=}" ;;
         --version) VERSION="$2"; shift ;;
+        --version=*) VERSION="${1#*=}" ;;
         --containerd-version) CONTAINERD_VERSION="$2"; shift ;;
+        --containerd-version=*) CONTAINERD_VERSION="${1#*=}" ;;
         --cni-version) CNI_PLUGINS_VERSION="$2"; shift ;;
+        --cni-version=*) CNI_PLUGINS_VERSION="${1#*=}" ;;
         --provider) PROVIDER="$2"; shift ;;
+        --provider=*) PROVIDER="${1#*=}" ;;
         --labels) NODE_LABELS="$2"; shift ;;
+        --labels=*) NODE_LABELS="${1#*=}" ;;
         --provider-id) PROVIDER_ID="$2"; shift ;;
+        --provider-id=*) PROVIDER_ID="${1#*=}" ;;
         --help) print_usage; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac

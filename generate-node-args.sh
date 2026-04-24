@@ -31,30 +31,42 @@ PROVIDER="gcp" # Default provider
 NODE_LABELS="" # Optional labels
 PROVIDER_ID="" # Optional provider ID
 
+# Function to print usage information
+print_usage() {
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"
+    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels 'cloud.google.com/gke-unmanaged-node=true,team=myteam' --provider-id='aws:///us-west-2a/aws-node-01'"
+}
+
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --node) NODE_NAME="$2"; shift ;;
+        --node=*) NODE_NAME="${1#*=}" ;;
         --version) K8S_VERSION="$2"; shift ;;
+        --version=*) K8S_VERSION="${1#*=}" ;;
         --containerd-version) CONTAINERD_VERSION_ARG="$2"; shift ;;
+        --containerd-version=*) CONTAINERD_VERSION_ARG="${1#*=}" ;;
         --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;;
+        --cni-version=*) CNI_PLUGINS_VERSION_ARG="${1#*=}" ;;
         --provider) PROVIDER="$2"; shift ;;
+        --provider=*) PROVIDER="${1#*=}" ;;
         --labels) NODE_LABELS="$2"; shift ;;
+        --labels=*) NODE_LABELS="${1#*=}" ;;
         --provider-id) PROVIDER_ID="$2"; shift ;;
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"; exit 1 ;;
+        --provider-id=*) PROVIDER_ID="${1#*=}" ;;
+        --help) print_usage; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; print_usage; exit 1 ;;
     esac
     shift
 done
 
-if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" && "$PROVIDER" != "azure" ]]; then
-    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp', 'aws', or 'azure'."
+if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
+    print_usage
     exit 1
 fi
 
-if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"
-    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels \"env=prod,team=myteam\""
+if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" && "$PROVIDER" != "azure" ]]; then
+    echo "Error: Invalid provider '$PROVIDER'. Must be 'gcp', 'aws', or 'azure'."
     exit 1
 fi
 
