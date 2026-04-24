@@ -25,13 +25,13 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
 2.  **Generate Worker Node Arguments on your workstation**:
     Navigate to the directory containing `generate-node-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
     ```bash
-    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <provider>]
+    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <provider>] [--labels <labels>] [--provider-id <id>]
     ```
     **Example**:
     ```bash
     ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
     # For AWS VM (user provisions VM first):
-    ./generate-node-args.sh --node aws-worker-01 --version 1.32.0 --provider aws
+    ./generate-node-args.sh --node aws-worker-01 --version 1.32.0 --provider aws --labels "env=prod,team=infra" --provider-id "aws:///us-west-2a/i-1234567890abcdef0"
     # For Azure VM (user provisions VM first):
     ./generate-node-args.sh --node azure-worker-01 --version 1.32.0 --provider azure
     # Or, defaulting to gcp:

@@ -22,7 +22,6 @@
 
 set -euo pipefail
 
-# --- Sanity Checks ---
 # Initialize variables
 NODE_NAME=""
 K8S_VERSION=""
@@ -30,6 +29,7 @@ CONTAINERD_VERSION_ARG="" # New optional argument for containerd version
 CNI_PLUGINS_VERSION_ARG="" # New optional argument for CNI plugins version (interpreting "csi" as cni plugins)
 PROVIDER="gcp" # Default provider
 NODE_LABELS="" # Optional labels
+PROVIDER_ID="" # Optional provider ID
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
@@ -40,8 +40,9 @@ while [[ "$#" -gt 0 ]]; do
         --cni-version) CNI_PLUGINS_VERSION_ARG="$2"; shift ;;
         --provider) PROVIDER="$2"; shift ;;
         --labels) NODE_LABELS="$2"; shift ;;
-        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"; exit 1 ;;
+        --provider-id) PROVIDER_ID="$2"; shift ;;
+        --help) echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"; exit 1 ;;
     esac
     shift
 done
@@ -52,7 +53,7 @@ if [[ "$PROVIDER" != "gcp" && "$PROVIDER" != "aws" && "$PROVIDER" != "azure" ]];
 fi
 
 if [ -z "$NODE_NAME" ] || [ -z "$K8S_VERSION" ]; then
-    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>]"
+    echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"
     echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels \"env=prod,team=myteam\""
     exit 1
 fi
@@ -322,6 +323,10 @@ SETUP_COMMAND="sudo ./setup-node.sh --name \"${NODE_NAME}\" --api-url \"${API_SE
 
 if [ -n "$NODE_LABELS" ]; then
     SETUP_COMMAND="${SETUP_COMMAND} --labels \"${NODE_LABELS}\""
+fi
+
+if [ -n "$PROVIDER_ID" ]; then
+    SETUP_COMMAND="${SETUP_COMMAND} --provider-id \"${PROVIDER_ID}\""
 fi
 
 echo "${SETUP_COMMAND}"
