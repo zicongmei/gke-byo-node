@@ -322,6 +322,50 @@ echo "  [✓] Cleaned up old kubelet service configurations."
 # CNI network configuration is now managed by the chosen CNI provider (e.g., Cilium)
 # and should not be manually created here.
 # The `/etc/cni/net.d` directory will be populated by the cluster's CNI deployment.
+if [ "$PROVIDER" = "aws" ]; then
+    echo "  --> [AWS] Configuring local bridge CNI as GKE doesn't manage routes for non-GCP nodes..."
+    mkdir -p /etc/cni/net.d
+    
+    # Fetch PodCIDR from the API server (requires the local-edit.conf we just created)
+    # We wait a bit for the node to be created and CIDR to be assigned by the controller if using an IPAM
+    # However, for BYO nodes, we often need to manually set it or use a default if not set.
+    # In this environment, we'll try to fetch it, or the user can patch it.
+    
+    POD_CIDR=$(/usr/bin/kubectl get node "${NODE_NAME}" --kubeconfig=/etc/kubernetes/local-edit.conf -o jsonpath='{.spec.podCIDR}' 2>/dev/null || echo "")
+    
+    if [ -z "$POD_CIDR" ]; then
+        echo "    [i] PodCIDR not yet assigned to node. CNI will be initialized without subnet until assigned."
+        # Create a placeholder or wait? Better to create a generic one if possible, 
+        # but bridge needs the subnet. We'll add a comment.
+    else
+        echo "    [✓] Found PodCIDR: ${POD_CIDR}"
+        cat > /etc/cni/net.d/10-bridge.conf <<EOF
+{
+  "cniVersion": "0.3.1",
+  "name": "bridge",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipMasq": true,
+  "ipam": {
+    "type": "host-local",
+    "ranges": [
+      [
+        {
+          "subnet": "${POD_CIDR}"
+        }
+      ]
+    ],
+    "routes": [
+      {
+        "dst": "0.0.0.0/0"
+      }
+    ]
+  }
+}
+EOF
+    fi
+fi
 
 # Kubelet config file
 cat > /var/lib/kubelet/config.yaml <<EOF
