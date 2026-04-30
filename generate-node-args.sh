@@ -34,7 +34,7 @@ PROVIDER_ID="" # Optional provider ID
 # Function to print usage information
 print_usage() {
     echo "Usage: $0 --node <new-worker-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <gcp|aws|azure>] [--labels <labels>] [--provider-id <id>]"
-    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels 'cloud.google.com/gke-unmanaged-node=true,team=myteam' --provider-id='aws:///us-west-2a/aws-node-01'"
+    echo "Sample: ./generate-node-args.sh --node aws-node-01 --version 1.35.2 --provider aws --labels 'components.gke.io/gke-unmanaged-node=true,team=myteam' --provider-id='aws:///us-west-2a/aws-node-01'"
 }
 
 # Parse named arguments
