@@ -327,18 +327,40 @@ if [ "$PROVIDER" = "aws" ]; then
     mkdir -p /etc/cni/net.d
     
     # Fetch PodCIDR from the API server (requires the local-edit.conf we just created)
-    # We wait a bit for the node to be created and CIDR to be assigned by the controller if using an IPAM
-    # However, for BYO nodes, we often need to manually set it or use a default if not set.
-    # In this environment, we'll try to fetch it, or the user can patch it.
-    
-    POD_CIDR=$(/usr/bin/kubectl get node "${NODE_NAME}" --kubeconfig=/etc/kubernetes/local-edit.conf -o jsonpath='{.spec.podCIDR}' 2>/dev/null || echo "")
+    # For BYO nodes, we often need to manually set it. Here we'll automate the assignment if missing.
+    KUBECONFIG_PATH="/etc/kubernetes/local-edit.conf"
+    POD_CIDR=$(/usr/bin/kubectl get node "${NODE_NAME}" --kubeconfig="$KUBECONFIG_PATH" -o jsonpath='{.spec.podCIDR}' 2>/dev/null || echo "")
     
     if [ -z "$POD_CIDR" ]; then
-        echo "    [i] PodCIDR not yet assigned to node. CNI will be initialized without subnet until assigned."
-        # Create a placeholder or wait? Better to create a generic one if possible, 
-        # but bridge needs the subnet. We'll add a comment.
-    else
-        echo "    [✓] Found PodCIDR: ${POD_CIDR}"
+        echo "    [i] PodCIDR not yet assigned to node. Attempting to automatically assign one..."
+        
+        # Get all existing PodCIDRs to find a free range
+        # We'll use 10.112.X.0/24 as the pattern, assuming GKE Standard default range is nearby.
+        # Find the highest X in use and use X+1.
+        EXISTING_CIDRS=$(/usr/bin/kubectl get nodes --kubeconfig="$KUBECONFIG_PATH" -o jsonpath='{.items[*].spec.podCIDR}' 2>/dev/null)
+        
+        MAX_X=0
+        for cidr in $EXISTING_CIDRS; do
+            X=$(echo "$cidr" | cut -d. -f3)
+            if [ "$X" -gt "$MAX_X" ]; then
+                MAX_X=$X
+            fi
+        done
+        
+        NEW_X=$((MAX_X + 1))
+        NEW_CIDR="10.112.${NEW_X}.0/24"
+        
+        echo "    [i] Selected new PodCIDR: ${NEW_CIDR}. Patching node object..."
+        if /usr/bin/kubectl patch node "${NODE_NAME}" --kubeconfig="$KUBECONFIG_PATH" -p "{\"spec\":{\"podCIDR\":\"${NEW_CIDR}\", \"podCIDRs\":[\"${NEW_CIDR}\"]}}" >/dev/null 2>&1; then
+            echo "    [✓] Node patched with PodCIDR: ${NEW_CIDR}"
+            POD_CIDR=$NEW_CIDR
+        else
+            echo "    [X] Failed to patch node. You may need to manually run: kubectl patch node ${NODE_NAME} -p '{\"spec\":{\"podCIDR\":\"${NEW_CIDR}\"}}'"
+        fi
+    fi
+
+    if [ -n "$POD_CIDR" ]; then
+        echo "    [✓] Using PodCIDR: ${POD_CIDR}"
         cat > /etc/cni/net.d/10-bridge.conf <<EOF
 {
   "cniVersion": "0.3.1",
@@ -364,6 +386,8 @@ if [ "$PROVIDER" = "aws" ]; then
   }
 }
 EOF
+    else
+        echo "    [W] No PodCIDR available. CNI configuration skipped."
     fi
 fi
 
