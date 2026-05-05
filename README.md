@@ -23,37 +23,36 @@ Follow these steps to quickly add a new custom worker node to your Kubernetes cl
     Ensure your `kubectl` context is set to the target Kubernetes cluster where you want to add the node. You can verify this with `kubectl config current-context`.
 
 2.  **Generate Worker Node Arguments on your workstation**:
-    Navigate to the directory containing `generate-node-args.sh` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
+    Navigate to the directory containing `generate_node_args.py` and execute it. Provide a unique name for your new worker node and the *exact Kubernetes version* you intend to use. You can also specify optional versions for Containerd and CNI plugins.
     ```bash
-    ./generate-node-args.sh --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <provider>] [--labels <labels>] [--provider-id <id>]
+    python3 generate_node_args.py --node <your-new-node-name> --version <kubernetes-version> [--containerd-version <version>] [--cni-version <version>] [--provider <provider>] [--labels <labels>] [--provider-id <id>]
     ```
     **Example**:
     ```bash
-    ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
+    python3 generate_node_args.py --node ubuntu-worker-01 --version 1.32.0 --containerd-version 1.7.22 --cni-version 1.5.1
     # For AWS VM (user provisions VM first):
-    ./generate-node-args.sh --node aws-worker-01 --version 1.32.0 --provider aws --labels "env=prod,team=infra" --provider-id "aws:///us-west-2a/i-1234567890abcdef0"
+    python3 generate_node_args.py --node aws-worker-01 --version 1.32.0 --provider aws --labels "env=prod,team=infra" --provider-id "aws:///us-west-2a/i-1234567890abcdef0"
     # For Azure VM (user provisions VM first):
-    ./generate-node-args.sh --node azure-worker-01 --version 1.32.0 --provider azure
+    python3 generate_node_args.py --node azure-worker-01 --version 1.32.0 --provider azure
     # Or, defaulting to gcp:
-    ./generate-node-args.sh --node ubuntu-worker-01 --version 1.32.0
+    python3 generate_node_args.py --node ubuntu-worker-01 --version 1.32.0
     ```
     This script will:
     *   Discover cluster details.
     *   Generate a private key and CSR for your node.
     *   **Automatically approve** the CSR in your Kubernetes cluster.
-    *   Output a `sudo ./setup-node.sh ...` command. **Copy this entire command.**
+    *   Output a `sudo python3 setup_node.py ...` command. **Copy this entire command.**
 
-3.  **Execute `setup-node.sh` on the new worker node**:
+3.  **Execute `setup_node.py` on the new worker node**:
     SSH into your new worker node. 
     
-    Download the setup-node.sh.
+    Download the setup_node.py.
     ```
-    curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup-node.sh -o setup-node.sh
-    chmod +x setup-node.sh
+    curl https://raw.githubusercontent.com/zicongmei/gke-byo-node/refs/heads/main/setup_node.py -o setup_node.py
     ```
-    Then, paste and execute the full command that was output by `generate-node-args.sh` in Step 2. Remember to run it with `sudo`.
+    Then, paste and execute the full command that was output by `generate_node_args.py` in Step 2. Remember to run it with `sudo`.
     ```bash
-    sudo ./setup-node.sh --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
+    sudo python3 setup_node.py --name "ubuntu-worker-01" --api-url "https://34.123.45.67" --ca-cert-base64 "..." --node-private-key-base64 "..." --node-client-cert-base64 "..." --cluster-dns-ip "10.96.0.10" --version "1.32.0" --containerd-version "1.7.22" --cni-version "1.5.1"
     ```
     This script will install all necessary components, configure them, and start the `kubelet` service. It will automatically remove any existing `kubelet` and `kubectl` binaries if found.
 
@@ -78,20 +77,20 @@ The core problem these scripts solve is the manual complexity of setting up a ne
 
 This automation is particularly useful for scenarios where you need to integrate custom virtual machines or bare-metal servers into an existing GKE cluster as worker nodes, providing flexibility beyond standard GKE node pools.
 
-### `generate-node-args.sh` (Run on your workstation/control plane)
+### `generate_node_args.py` (Run on your workstation/control plane)
 
 This script is executed on a machine with `kubectl` configured to access your target Kubernetes cluster. Its primary functions are:
 *   **Cluster Information Discovery**: Automatically fetches the Kubernetes API server URL, cluster CA certificate, and (optionally) the cluster DNS IP from your current `kubectl` context.
 *   **Credential Generation**: Generates a unique private key and a Certificate Signing Request (CSR) for the new worker node.
 *   **Version Parameterization**: Allows specifying optional versions for `containerd` and CNI plugins, defaulting to commonly used "current" versions if not provided.
 *   **Provider Selection**: Supports `--provider` flag (default `gcp`). Specify `aws` if targeting an AWS VM. This updates output messages to be provider-aware.
-*   **Output Generation**: Prints a `setup-node.sh` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
+*   **Output Generation**: Prints a `setup_node.py` command complete with all necessary arguments (base64 encoded certificates, keys, API URL, etc.) that can be directly copied and executed on the new worker node.
 
-**Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs) and `openssl`.
+**Prerequisites**: `kubectl` (configured with cluster-admin like permissions to approve CSRs), `openssl`, and `python3`.
 
-### `setup-node.sh` (Run on the new worker node)
+### `setup_node.py` (Run on the new worker node)
 
-This script is executed on the target Ubuntu worker node, using the pre-generated arguments provided by `generate-node-args.sh`. It performs the following setup steps:
+This script is executed on the target Ubuntu worker node, using the pre-generated arguments provided by `generate_node_args.py`. It performs the following setup steps:
 *   **System Preparation**: Updates package lists, installs essential utilities (curl, gpg, apt-transport-https, dialog), and disables swap (a Kubernetes requirement).
 *   **CNI Plugin Installation**: Downloads and installs a standard version of CNI plugins (Container Network Interface) to `/opt/cni/bin`, using the specified or default version.
 *   **Containerd Runtime Installation**: Downloads and installs a specific version of `containerd` from its GitHub releases, configures it to use the `systemd` cgroup driver, and enables/starts its service, using the specified or default version.
