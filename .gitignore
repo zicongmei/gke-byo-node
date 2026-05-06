@@ -197,3 +197,4 @@ hack/
 .terraform*
 terraform.tfstate*
 terraform.tfvars
+.workspace/
