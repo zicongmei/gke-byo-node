@@ -94,42 +94,38 @@ Examples:
     else:
         print(f"  [✓] Cluster DNS IP: {cluster_dns_ip}")
 
-    # Discover PodCIDR for AWS/Azure
+    # Discover PodCIDR for all providers
     pod_cidr = ""
-    if provider in ["aws", "azure"]:
-        print(f"--> Discovering available PodCIDR for {provider} via kubectl...")
-        nodes_output = run_command(["kubectl", "get", "nodes", "-o", "json"], check=False)
-        if nodes_output:
-            try:
-                nodes_data = json.loads(nodes_output)
-                items = nodes_data.get("items", [])
-                existing_cidrs = [n.get("spec", {}).get("podCIDR") for n in items if n.get("spec", {}).get("podCIDR")]
+    print(f"--> Discovering available PodCIDR for {provider} via kubectl...")
+    nodes_output = run_command(["kubectl", "get", "nodes", "-o", "json"], check=False)
+    if nodes_output:
+        try:
+            nodes_data = json.loads(nodes_output)
+            items = nodes_data.get("items", [])
+            existing_cidrs = [n.get("spec", {}).get("podCIDR") for n in items if n.get("spec", {}).get("podCIDR")]
+            
+            if existing_cidrs:
+                # Use the first valid CIDR to determine the prefix
+                sample = existing_cidrs[0]
+                parts = sample.split('.')
+                prefix = ".".join(parts[:2])
                 
-                if existing_cidrs:
-                    # Use the first valid CIDR to determine the prefix
-                    sample = existing_cidrs[0]
-                    parts = sample.split('.')
-                    prefix = ".".join(parts[:2])
-                    
-                    # Find the highest third octet to pick the next available subnet
-                    max_x = 0
-                    for cidr in existing_cidrs:
-                        try:
-                            x = int(cidr.split('.')[2])
-                            if x > max_x: max_x = x
-                        except: continue
-                    
-                    pod_cidr = f"{prefix}.{max_x + 1}.0/24"
-                    print(f"  [✓] Assigned node PodCIDR: {pod_cidr} (derived from existing nodes)")
-                else:
-                    print("Error: No existing nodes have a PodCIDR assigned. Cannot automate CIDR allocation.")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"Error parsing node data: {e}")
-                sys.exit(1)
-        else:
-            print("Error: Could not retrieve node information to discover PodCIDR.")
-            sys.exit(1)
+                # Find the highest third octet to pick the next available subnet
+                max_x = 0
+                for cidr in existing_cidrs:
+                    try:
+                        x = int(cidr.split('.')[2])
+                        if x > max_x: max_x = x
+                    except: continue
+                
+                pod_cidr = f"{prefix}.{max_x + 1}.0/24"
+                print(f"  [✓] Assigned node PodCIDR: {pod_cidr} (derived from existing nodes)")
+            else:
+                print("Warning: No existing nodes have a PodCIDR assigned. If this is a GKE cluster with alias IP, this might be expected. Continuing without explicit PodCIDR.")
+        except Exception as e:
+            print(f"Error parsing node data: {e}")
+    else:
+        print("Error: Could not retrieve node information to discover PodCIDR.")
 
     # Generate Credentials
     print(f"--> Generating credentials for {node_name}...")
@@ -256,15 +252,18 @@ extendedKeyUsage = clientAuth
     print(f"1. Copy the 'setup_node.py' script to the new {provider} worker node.\n")
     print(f"2. Run the following command on the new {provider} worker node to join it to the cluster:\n")
 
+    def clean_b64(s):
+        return s.replace("\n", "").replace("\r", "")
+
     setup_cmd = [
         "sudo", "python3", "setup_node.py",
         "--name", f'"{node_name}"',
         "--api-url", f'"{api_server_url}"',
-        "--ca-cert-base64", f'"{ca_data}"',
-        "--node-private-key-base64", f'"{node_key_b64}"',
-        "--node-client-cert-base64", f'"{node_cert_b64}"',
-        "--local-edit-private-key-base64", f'"{le_key_b64}"',
-        "--local-edit-client-cert-base64", f'"{le_cert_b64}"',
+        "--ca-cert-base64", f'"{clean_b64(ca_data)}"',
+        "--node-private-key-base64", f'"{clean_b64(node_key_b64)}"',
+        "--node-client-cert-base64", f'"{clean_b64(node_cert_b64)}"',
+        "--local-edit-private-key-base64", f'"{clean_b64(le_key_b64)}"',
+        "--local-edit-client-cert-base64", f'"{clean_b64(le_cert_b64)}"',
         "--cluster-dns-ip", f'"{cluster_dns_ip}"',
         "--version", f'"{k8s_version}"',
         "--containerd-version", f'"{containerd_version}"',

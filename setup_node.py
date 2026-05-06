@@ -217,23 +217,23 @@ def main():
         shutil.rmtree("/etc/systemd/system/kubelet.service.d")
         os.makedirs("/etc/systemd/system/kubelet.service.d")
 
-    if provider == "aws":
-        print("  --> [AWS] Configuring local bridge CNI...")
-        kubeconfig_path = "/etc/kubernetes/local-edit.conf"
-        pod_cidr = args.pod_cidr
+    # Bridge CNI configuration for unmanaged nodes
+    print(f"  --> [{provider}] Checking for local bridge CNI configuration...")
+    kubeconfig_path = "/etc/kubernetes/local-edit.conf"
+    pod_cidr = args.pod_cidr
+    
+    if not pod_cidr:
+        print("    [i] PodCIDR not provided via argument. Fetching from node object...")
+        pod_cidr = run_command(["/usr/bin/kubectl", "get", "node", node_name, "--kubeconfig", kubeconfig_path, "-o", "jsonpath={.spec.podCIDR}"], check=False)
+    
+    if pod_cidr:
+        print(f"    [i] Using PodCIDR: {pod_cidr}. Patching node to ensure consistency...")
+        patch_payload = json.dumps({"spec": {"podCIDR": pod_cidr, "podCIDRs": [pod_cidr]}})
+        run_command(["/usr/bin/kubectl", "patch", "node", node_name, "--kubeconfig", kubeconfig_path, "-p", patch_payload], check=False)
         
-        if not pod_cidr:
-            print("    [i] PodCIDR not provided via argument. Fetching from node object...")
-            pod_cidr = run_command(["/usr/bin/kubectl", "get", "node", node_name, "--kubeconfig", kubeconfig_path, "-o", "jsonpath={.spec.podCIDR}"], check=False)
-        
-        if pod_cidr:
-            print(f"    [i] Using PodCIDR: {pod_cidr}. Patching node to ensure consistency...")
-            patch_payload = json.dumps({"spec": {"podCIDR": pod_cidr, "podCIDRs": [pod_cidr]}})
-            run_command(["/usr/bin/kubectl", "patch", "node", node_name, "--kubeconfig", kubeconfig_path, "-p", patch_payload], check=False)
-            
-            os.makedirs("/etc/cni/net.d", exist_ok=True)
-            with open("/etc/cni/net.d/10-bridge.conf", "w") as f:
-                f.write(f"""{{
+        os.makedirs("/etc/cni/net.d", exist_ok=True)
+        with open("/etc/cni/net.d/10-bridge.conf", "w") as f:
+            f.write(f"""{{
   "cniVersion": "0.3.1",
   "name": "bridge",
   "type": "bridge",
@@ -257,8 +257,8 @@ def main():
   }}
 }}
 """)
-        else:
-            print("    [!] PodCIDR not provided and not assigned to node. CNI configuration skipped.")
+    else:
+        print("    [!] PodCIDR not provided and not assigned to node. CNI configuration skipped. If the node stays NotReady, ensure a PodCIDR is assigned.")
 
     kubelet_config = f"""apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
