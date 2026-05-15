@@ -108,6 +108,20 @@ users:
     # Step 3: Generate NixOS Configuration
     print("--> [3/4] Generating NixOS configuration module...")
     
+    # Try to capture current SSH keys to avoid lockout
+    ssh_keys_list = []
+    try:
+        if os.path.exists("/root/.ssh/authorized_keys"):
+            with open("/root/.ssh/authorized_keys", "r") as f:
+                ssh_keys_list = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        elif os.path.exists("/etc/ssh/authorized_keys.d/root"):
+             with open("/etc/ssh/authorized_keys.d/root", "r") as f:
+                ssh_keys_list = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    except Exception as e:
+        print(f"  [!] Warning: Could not read existing SSH keys: {e}")
+
+    ssh_keys_nix = "\n".join([f'      "{key}"' for key in ssh_keys_list])
+    
     # Extract masterAddress from api_url
     master_address = args.api_url.replace("https://", "").replace("http://", "").split(":")[0]
 
@@ -152,6 +166,14 @@ users:
     "net.bridge.bridge-nf-call-ip6tables" = lib.mkForce 1;
   }};
 
+  # Disable firewall as it often interferes with K8s networking
+  networking.firewall.enable = lib.mkForce false;
+  
+  # Preserve SSH keys
+  users.users.root.openssh.authorizedKeys.keys = [
+{ssh_keys_nix}
+  ];
+
   swapDevices = lib.mkForce [];
 
   virtualisation.containerd = {{
@@ -194,7 +216,7 @@ users:
   }};
 {cni_nix_config}
   # Ensure kubectl is available for debugging
-  environment.systemPackages = [ pkgs.kubectl ];
+  environment.systemPackages = [ pkgs.kubectl pkgs.conntrack-tools pkgs.iptables ];
 }}
 """
     with open("/etc/nixos/kubernetes-node.nix", "w") as f:
