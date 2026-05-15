@@ -27,6 +27,8 @@ docker run --rm \
   -w /workspace \
   nixos/nix \
   sh -c "nix-build '<nixpkgs/nixos>' \
+    -j auto \
+    --cores 0 \
     --option system-features 'benchmark big-parallel kvm' \
     -A config.system.build.googleComputeImage \
     -I nixos-config=./configuration.nix \

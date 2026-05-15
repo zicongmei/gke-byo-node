@@ -25,12 +25,13 @@ The `build_image.sh` script handles the entire process:
 ```bash
 # 1. Define the image name explicitly
 export IMAGE_NAME="nixos-$(date +%Y%m%d-%H%M)"
+echo "IMAGE_NAME=$IMAGE_NAME"
 
 # 2. Build and create GCP image automatically
-GCS_BUCKET="my-nixos-images" IMAGE_NAME=$IMAGE_NAME ./nixos/gcp/build_image.sh
+GCS_BUCKET="$USER-nixos-images" IMAGE_NAME=$IMAGE_NAME ./build_image.sh
 
 # Or build only (artifact remains in /tmp)
-./nixos/gcp/build_image.sh
+./build_image.sh
 ```
 
 ## Create a VM from the Image
@@ -38,7 +39,7 @@ GCS_BUCKET="my-nixos-images" IMAGE_NAME=$IMAGE_NAME ./nixos/gcp/build_image.sh
 Once the image is created in GCP, you can launch a VM using the same variable:
 
 ```bash
-gcloud compute instances create my-nixos-vm \
+gcloud compute instances create nixos-vm-1 \
     --image="$IMAGE_NAME" \
     --zone="us-central1-a" \
     --machine-type="e2-medium"
