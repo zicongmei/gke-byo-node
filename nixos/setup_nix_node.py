@@ -25,29 +25,43 @@ def run_command(command, shell=False, check=True, text=True, capture_output=True
         return None
 
 def safe_b64decode(s):
-    s = s.strip().replace("\n", "").replace(" ", "")
+    import re
+    # Remove all non-base64 characters (only keep A-Z, a-z, 0-9, +, /, and =)
+    s = re.sub(r'[^A-Za-z0-9+/=]', '', s)
     padding = len(s) % 4
-    if padding > 0:
+    if padding == 1:
+        # This is technically invalid, but let's try to fix it by dropping the last char
+        # or adding padding if it was just a missing char. 
+        # Usually % 4 == 1 means corruption.
+        s = s[:-1]
+    elif padding > 1:
         s += "=" * (4 - padding)
     return base64.b64decode(s)
 
 def main():
     parser = argparse.ArgumentParser(description="Configure NixOS machine as a Kubernetes worker node.")
-    parser.add_argument("--name", required=True)
-    parser.add_argument("--api-url", required=True)
-    parser.add_argument("--ca-cert-base64", required=True)
-    parser.add_argument("--node-private-key-base64", required=True)
-    parser.add_argument("--node-client-cert-base64", required=True)
-    parser.add_argument("--local-edit-private-key-base64", required=True)
-    parser.add_argument("--local-edit-client-cert-base64", required=True)
-    parser.add_argument("--cluster-dns-ip", required=True)
+    parser.add_argument("--json-args")
+    parser.add_argument("--name")
+    parser.add_argument("--api-url")
+    parser.add_argument("--ca-cert-base64")
+    parser.add_argument("--node-private-key-base64")
+    parser.add_argument("--node-client-cert-base64")
+    parser.add_argument("--local-edit-private-key-base64")
+    parser.add_argument("--local-edit-client-cert-base64")
+    parser.add_argument("--cluster-dns-ip")
     parser.add_argument("--pod-cidr")
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--version")
     parser.add_argument("--provider", choices=["gcp", "aws", "azure"], default="gcp")
     parser.add_argument("--labels")
     parser.add_argument("--provider-id")
 
     args = parser.parse_args()
+
+    if args.json_args and os.path.exists(args.json_args):
+        with open(args.json_args, "r") as f:
+            jargs = json.load(f)
+            for k, v in jargs.items():
+                setattr(args, k.replace("-", "_"), v)
 
     if os.geteuid() != 0:
         print("Error: This script must be run as root (sudo).")
@@ -80,8 +94,6 @@ def main():
 
     # Generate local-edit kubeconfig (needed for patching PodCIDR later if required)
     print("--> [2/4] Generating temporary kubeconfig for setup...")
-    # Note: We use the system's kubectl if available, or we'll rely on the nixos-rebuild to provide it later.
-    # For now, we just prepare the config file.
     local_kubeconfig = f"""
 apiVersion: v1
 kind: Config
@@ -186,6 +198,8 @@ users:
   services.kubernetes = {{
     roles = [ "node" ];
     masterAddress = "{master_address}";{cluster_cidr_opt}
+    easyCerts = false;
+    caFile = "/etc/kubernetes/pki/ca.crt";
 
     # Explicitly disable flannel as we use bridge CNI or GKE manages it
     flannel.enable = lib.mkForce false;
@@ -195,10 +209,11 @@ users:
       hostname = lib.mkForce "{node_name}";
       kubeconfig = {{
         server = "{args.api_url}";
-        caFile = "/etc/kubernetes/pki/ca.crt";
         certFile = "/var/lib/kubelet/node.crt";
         keyFile = "/var/lib/kubelet/node.key";
       }};
+      tlsCertFile = "/var/lib/kubelet/node.crt";
+      tlsKeyFile = "/var/lib/kubelet/node.key";
       clusterDns = "{args.cluster_dns_ip}";
       extraOpts = "--node-labels={kubelet_labels} --v=2";{provider_id_opt}
     }};
@@ -208,7 +223,6 @@ users:
       hostname = lib.mkForce "{node_name}";
       kubeconfig = {{
         server = "{args.api_url}";
-        caFile = "/etc/kubernetes/pki/ca.crt";
         certFile = "/var/lib/kubelet/node.crt";
         keyFile = "/var/lib/kubelet/node.key";
       }};

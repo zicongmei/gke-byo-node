@@ -148,6 +148,7 @@ Examples:
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
 prompt = no
+string_mask = utf8only
 [req_distinguished_name]
 CN = system:node:{node_name}
 O = system:nodes
@@ -155,7 +156,7 @@ O = system:nodes
 keyUsage = keyEncipherment, dataEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 """)
-        run_command(["openssl", "req", "-new", "-key", key_path, "-out", csr_path, "-config", cnf_path])
+        run_command(["openssl", "req", "-new", "-key", key_path, "-out", csr_path, "-config", cnf_path, "-utf8"])
         
         with open(key_path, "rb") as f:
             node_key_b64 = base64.b64encode(f.read()).decode('utf-8')
@@ -205,6 +206,7 @@ extendedKeyUsage = serverAuth, clientAuth
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
 prompt = no
+string_mask = utf8only
 [req_distinguished_name]
 CN = cluster-admin
 O = cluster-admin
@@ -212,7 +214,7 @@ O = cluster-admin
 keyUsage = keyEncipherment, dataEncipherment
 extendedKeyUsage = clientAuth
 """)
-        run_command(["openssl", "req", "-new", "-key", le_key_path, "-out", le_csr_path, "-config", le_cnf_path])
+        run_command(["openssl", "req", "-new", "-key", le_key_path, "-out", le_csr_path, "-config", le_cnf_path, "-utf8"])
 
         with open(le_key_path, "rb") as f:
             le_key_b64 = base64.b64encode(f.read()).decode('utf-8')
