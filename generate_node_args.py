@@ -42,6 +42,9 @@ Examples:
   # For Azure node:
   python3 generate_node_args.py --node azure-worker-01 --version 1.35.2 --provider azure --labels 'components.gke.io/gke-unmanaged-node=true,team=myteam'
 
+  # For NixOS node:
+  python3 generate_node_args.py --node nix-worker-01 --version 1.35.2 --os nixos --labels 'components.gke.io/gke-unmanaged-node=true'
+
 """
     )
     parser.add_argument("--node", required=True, help="Worker node name")
@@ -51,6 +54,7 @@ Examples:
     parser.add_argument("--provider", choices=["gcp", "aws", "azure"], default="gcp", help="Cloud provider")
     parser.add_argument("--labels", help="Optional node labels")
     parser.add_argument("--provider-id", help="Optional provider ID")
+    parser.add_argument("--os", choices=["linux", "nixos"], default="linux", help="Target operating system")
 
     args = parser.parse_args()
 
@@ -59,6 +63,7 @@ Examples:
     containerd_version = args.containerd_version.lstrip('v')
     cni_version = args.cni_version.lstrip('v')
     provider = args.provider
+    target_os = args.os
 
     print(f"--- Preparing arguments for worker node: {node_name} (Provider: {provider}, K8s Version: {k8s_version}, Containerd: {containerd_version}, CNI: {cni_version}) ---")
 
@@ -249,14 +254,18 @@ extendedKeyUsage = clientAuth
     print("\n------------------------------------------------------------------------")
     print("  [SUCCESS] All arguments generated and client certificates approved.")
     print("------------------------------------------------------------------------\n")
-    print(f"1. Copy the 'setup_node.py' script to the new {provider} worker node.\n")
+    
+    script_name = "setup_nix_node.py" if target_os == "nixos" else "setup_node.py"
+    script_path = f"nixos/{script_name}" if target_os == "nixos" else script_name
+
+    print(f"1. Copy the '{script_path}' script to the new {provider} worker node.\n")
     print(f"2. Run the following command on the new {provider} worker node to join it to the cluster:\n")
 
     def clean_b64(s):
         return s.replace("\n", "").replace("\r", "")
 
     setup_cmd = [
-        "sudo", "python3", "setup_node.py",
+        "sudo", "python3", script_name,
         "--name", f'"{node_name}"',
         "--api-url", f'"{api_server_url}"',
         "--ca-cert-base64", f'"{clean_b64(ca_data)}"',
@@ -266,10 +275,16 @@ extendedKeyUsage = clientAuth
         "--local-edit-client-cert-base64", f'"{clean_b64(le_cert_b64)}"',
         "--cluster-dns-ip", f'"{cluster_dns_ip}"',
         "--version", f'"{k8s_version}"',
-        "--containerd-version", f'"{containerd_version}"',
-        "--cni-version", f'"{cni_version}"',
-        "--provider", f'"{provider}"'
     ]
+
+    if target_os != "nixos":
+        setup_cmd.extend([
+            "--containerd-version", f'"{containerd_version}"',
+            "--cni-version", f'"{cni_version}"',
+        ])
+
+    setup_cmd.append("--provider")
+    setup_cmd.append(f'"{provider}"')
 
     if pod_cidr:
         setup_cmd.extend(["--pod-cidr", f'"{pod_cidr}"'])

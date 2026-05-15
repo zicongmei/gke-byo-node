@@ -39,11 +39,16 @@ GCS_BUCKET="$USER-nixos-images" IMAGE_NAME=$IMAGE_NAME ./build_image.sh
 Once the image is created in GCP, you can launch a VM using the same variable:
 
 ```bash
-gcloud compute instances create nixos-vm-1 \
+VM_NAME=nixos-vm-1
+ZONE="us-central1-a"
+gcloud compute instances create $VM_NAME \
     --image="$IMAGE_NAME" \
-    --zone="us-central1-a" \
+    --zone="${ZONE}" \
     --machine-type="e2-medium"
 ```
+
+### SCP and SSH as root
+TODO
 
 ## Configuration
 
