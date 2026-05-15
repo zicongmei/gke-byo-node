@@ -21,6 +21,22 @@ trap "rm -rf $BUILD_DIR" EXIT
 # Copy the configuration to the build directory
 cp "$DIR/configuration.nix" "$BUILD_DIR/"
 
+# Find and copy user's public SSH key
+SSH_KEY=""
+if [[ -f "$HOME/.ssh/id_rsa.pub" ]]; then
+  SSH_KEY="$HOME/.ssh/id_rsa.pub"
+elif [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
+  SSH_KEY="$HOME/.ssh/id_ed25519.pub"
+fi
+
+if [[ -n "$SSH_KEY" ]]; then
+  echo "Found SSH key at $SSH_KEY, copying to build directory"
+  cp "$SSH_KEY" "$BUILD_DIR/ssh_key.pub"
+else
+  echo "WARNING: No public SSH key found in ~/.ssh/id_rsa.pub or ~/.ssh/id_ed25519.pub"
+  touch "$BUILD_DIR/ssh_key.pub" # Create empty file to avoid Nix build error
+fi
+
 docker run --rm \
   -e "NIX_PATH=nixpkgs=channel:nixos-23.11" \
   -v "$BUILD_DIR:/workspace" \

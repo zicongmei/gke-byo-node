@@ -39,7 +39,7 @@ GCS_BUCKET="$USER-nixos-images" IMAGE_NAME=$IMAGE_NAME ./build_image.sh
 Once the image is created in GCP, you can launch a VM using the same variable:
 
 ```bash
-VM_NAME=nixos-vm-1
+VM_NAME=nixos-vm-2
 ZONE="us-central1-a"
 gcloud compute instances create $VM_NAME \
     --image="$IMAGE_NAME" \
@@ -48,7 +48,19 @@ gcloud compute instances create $VM_NAME \
 ```
 
 ### SCP and SSH as root
-TODO
+
+Since the root user's SSH key is baked into the image, you can connect directly as root.
+
+If the VM has a **public IP** and your firewall (GCP firewall rule) allows port 22, you can use standard SSH:
+
+```bash
+PUBLIC_IP=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+
+scp ../setup_nix_node.py root@$PUBLIC_IP:~
+
+ssh root@$PUBLIC_IP
+```
+
 
 ## Configuration
 
