@@ -24,6 +24,13 @@ def run_command(command, shell=False, check=True, text=True, capture_output=True
             sys.exit(1)
         return None
 
+def safe_b64decode(s):
+    s = s.strip().replace("\n", "").replace(" ", "")
+    padding = len(s) % 4
+    if padding > 0:
+        s += "=" * (4 - padding)
+    return base64.b64decode(s)
+
 def main():
     parser = argparse.ArgumentParser(description="Configure NixOS machine as a Kubernetes worker node.")
     parser.add_argument("--name", required=True)
@@ -57,16 +64,16 @@ def main():
     os.makedirs("/var/lib/kubelet", exist_ok=True)
 
     with open("/etc/kubernetes/pki/ca.crt", "wb") as f:
-        f.write(base64.b64decode(args.ca_cert_base64))
+        f.write(safe_b64decode(args.ca_cert_base64))
     with open(f"/var/lib/kubelet/node.key", "wb") as f:
-        f.write(base64.b64decode(args.node_private_key_base64))
+        f.write(safe_b64decode(args.node_private_key_base64))
     with open(f"/var/lib/kubelet/node.crt", "wb") as f:
-        f.write(base64.b64decode(args.node_client_cert_base64))
+        f.write(safe_b64decode(args.node_client_cert_base64))
     
     with open("/etc/kubernetes/local-edit.key", "wb") as f:
-        f.write(base64.b64decode(args.local_edit_private_key_base64))
+        f.write(safe_b64decode(args.local_edit_private_key_base64))
     with open("/etc/kubernetes/local-edit.crt", "wb") as f:
-        f.write(base64.b64decode(args.local_edit_client_cert_base64))
+        f.write(safe_b64decode(args.local_edit_client_cert_base64))
     
     os.chmod("/var/lib/kubelet/node.key", 0o600)
     os.chmod("/etc/kubernetes/local-edit.key", 0o600)
@@ -101,12 +108,16 @@ users:
     # Step 3: Generate NixOS Configuration
     print("--> [3/4] Generating NixOS configuration module...")
     
+    # Extract masterAddress from api_url
+    master_address = args.api_url.replace("https://", "").replace("http://", "").split(":")[0]
+
     kubelet_labels = "node.kubernetes.io/kube-proxy-ds-ready=true"
     if args.labels:
         kubelet_labels += f",{args.labels}"
     
     provider_id_opt = f'\n      providerId = "{args.provider_id}";' if args.provider_id else ""
-    
+    cluster_cidr_opt = f'\n    clusterCidr = "{args.pod_cidr}";' if args.pod_cidr else ""
+
     # Bridge CNI logic
     pod_cidr = args.pod_cidr
     cni_nix_config = ""
@@ -136,9 +147,9 @@ users:
 {{
   boot.kernelModules = [ "overlay" "br_netfilter" ];
   boot.kernel.sysctl = {{
-    "net.bridge.bridge-nf-call-iptables" = 1;
-    "net.ipv4.ip_forward" = 1;
-    "net.bridge.bridge-nf-call-ip6tables" = 1;
+    "net.bridge.bridge-nf-call-iptables" = lib.mkForce 1;
+    "net.ipv4.ip_forward" = lib.mkForce 1;
+    "net.bridge.bridge-nf-call-ip6tables" = lib.mkForce 1;
   }};
 
   swapDevices = lib.mkForce [];
@@ -152,9 +163,14 @@ users:
 
   services.kubernetes = {{
     roles = [ "node" ];
+    masterAddress = "{master_address}";{cluster_cidr_opt}
+
+    # Explicitly disable flannel as we use bridge CNI or GKE manages it
+    flannel.enable = lib.mkForce false;
+
     kubelet = {{
       enable = true;
-      hostname = "{node_name}";
+      hostname = lib.mkForce "{node_name}";
       kubeconfig = {{
         server = "{args.api_url}";
         caFile = "/etc/kubernetes/pki/ca.crt";
@@ -163,6 +179,17 @@ users:
       }};
       clusterDns = "{args.cluster_dns_ip}";
       extraOpts = "--node-labels={kubelet_labels} --v=2";{provider_id_opt}
+    }};
+
+    proxy = {{
+      enable = true;
+      hostname = lib.mkForce "{node_name}";
+      kubeconfig = {{
+        server = "{args.api_url}";
+        caFile = "/etc/kubernetes/pki/ca.crt";
+        certFile = "/var/lib/kubelet/node.crt";
+        keyFile = "/var/lib/kubelet/node.key";
+      }};
     }};
   }};
 {cni_nix_config}

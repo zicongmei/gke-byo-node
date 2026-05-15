@@ -39,7 +39,7 @@ GCS_BUCKET="$USER-nixos-images" IMAGE_NAME=$IMAGE_NAME ./build_image.sh
 Once the image is created in GCP, you can launch a VM using the same variable:
 
 ```bash
-VM_NAME=nixos-vm-2
+VM_NAME=nixos-vm-5
 ZONE="us-central1-a"
 gcloud compute instances create $VM_NAME \
     --image="$IMAGE_NAME" \
@@ -55,6 +55,7 @@ If the VM has a **public IP** and your firewall (GCP firewall rule) allows port 
 
 ```bash
 PUBLIC_IP=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+echo $PUBLIC_IP
 
 scp ../setup_nix_node.py root@$PUBLIC_IP:~
 
