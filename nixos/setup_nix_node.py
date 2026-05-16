@@ -137,6 +137,14 @@ users:
     # Extract masterAddress from api_url
     master_address = args.api_url.replace("https://", "").replace("http://", "").split(":")[0]
 
+    k8s_package_line = ""
+    if args.version:
+        v_parts = args.version.lstrip('v').split('.')
+        if len(v_parts) >= 2:
+            v_attr = f"kubernetes_{v_parts[0]}_{v_parts[1]}"
+            # Use the specific version if available, otherwise fallback to default kubernetes package
+            k8s_package_line = f"\n    package = pkgs.{v_attr} or pkgs.kubernetes;"
+
     kubelet_labels = "node.kubernetes.io/kube-proxy-ds-ready=true"
     if args.labels:
         kubelet_labels += f",{args.labels}"
@@ -196,7 +204,7 @@ users:
   }};
 
   services.kubernetes = {{
-    roles = [ "node" ];
+    roles = [ "node" ];{k8s_package_line}
     masterAddress = "{master_address}";{cluster_cidr_opt}
     easyCerts = false;
     caFile = "/etc/kubernetes/pki/ca.crt";
@@ -214,7 +222,7 @@ users:
       }};
       tlsCertFile = "/var/lib/kubelet/node.crt";
       tlsKeyFile = "/var/lib/kubelet/node.key";
-      clusterDns = "{args.cluster_dns_ip}";
+      clusterDns = [ "{args.cluster_dns_ip}" ];
       extraOpts = "--node-labels={kubelet_labels} --v=2";{provider_id_opt}
     }};
 

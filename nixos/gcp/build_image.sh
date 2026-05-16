@@ -38,7 +38,7 @@ else
 fi
 
 docker run --rm \
-  -e "NIX_PATH=nixpkgs=channel:nixos-23.11" \
+  -e "NIX_PATH=nixpkgs=channel:nixos-24.11" \
   -v "$BUILD_DIR:/workspace" \
   -w /workspace \
   nixos/nix \
