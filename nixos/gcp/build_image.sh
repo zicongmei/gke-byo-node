@@ -63,6 +63,7 @@ if [[ -n "$GCS_BUCKET" ]]; then
     --guest-os-features="UEFI_COMPATIBLE"
   
   echo "Image creation complete: $IMAGE_NAME"
+  echo "Image URI: projects/$PROJECT_ID/global/images/$IMAGE_NAME"
 else
   echo "GCS_BUCKET not set. Image build complete at: $IMAGE_PATH"
   echo "To create the GCP image manually, upload this file to GCS and run:"
